@@ -1,0 +1,233 @@
+##############################################################################
+# .gitlab-ci.yml — Pipeline CI/CD MedRAG
+#
+# Stages :
+#   lint    → vérification qualité du code (ruff + build frontend)
+#   test    → tests unitaires pytest (sans DB réelle)
+#   build   → image Docker API + bundle React (sur main/develop)
+#   deploy  → déploiement staging (manuel, sur main uniquement)
+#
+# Variables GitLab à configurer (Settings → CI/CD → Variables) :
+#   ANTHROPIC_API_KEY   → clé API Anthropic (protected, masked)
+#   SSH_PRIVATE_KEY     → clé SSH pour le déploiement (protected)
+#   STAGING_HOST        → IP/hostname du serveur staging
+#   STAGING_USER        → utilisateur SSH du serveur staging
+##############################################################################
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+# ── Variables globales ────────────────────────────────────────────────────────
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  npm_config_cache: "$CI_PROJECT_DIR/.cache/npm"
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  PYTHON_IMAGE: "python:3.11-slim"
+  NODE_IMAGE: "node:20-slim"
+
+# ── Cache partagé ─────────────────────────────────────────────────────────────
+.cache-pip: &cache-pip
+  cache:
+    key: "pip-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/pip
+    policy: pull-push
+
+.cache-npm: &cache-npm
+  cache:
+    key: "npm-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cache/npm
+      - frontend/node_modules
+    policy: pull-push
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  STAGE 1 — LINT                                                         ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+backend:lint:
+  stage: lint
+  image: $PYTHON_IMAGE
+  <<: *cache-pip
+  before_script:
+    - pip install ruff --quiet
+  script:
+    - echo "=== Lint Python (ruff) ==="
+    - ruff check datalake_pipeline/rag_engine/ datalake_pipeline/*.py
+      --output-format=github
+      --statistics
+  allow_failure: false
+
+frontend:lint:
+  stage: lint
+  image: $NODE_IMAGE
+  <<: *cache-npm
+  before_script:
+    - cd frontend
+    - npm ci --quiet
+  script:
+    - echo "=== Vérification build frontend ==="
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 hour
+  allow_failure: false
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  STAGE 2 — TEST                                                         ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+backend:unit-tests:
+  stage: test
+  image: $PYTHON_IMAGE
+  <<: *cache-pip
+  variables:
+    # Variables d'environnement pour les tests (valeurs factices, pas de vraie DB)
+    ANTHROPIC_API_KEY: "sk-ant-test-placeholder"
+    PG_DSN: "postgresql://medrag:medrag_2024@localhost:5432/medrag"
+    MONGO_URI: "mongodb://localhost:27017/"
+    EMBEDDING_MODEL: "intfloat/multilingual-e5-base"
+  before_script:
+    - pip install -r datalake_pipeline/requirements_dev.txt --quiet
+  script:
+    - echo "=== Tests unitaires pytest ==="
+    - cd datalake_pipeline
+    - pytest tests/
+      --cov=rag_engine
+      --cov-report=term-missing
+      --cov-report=xml:coverage.xml
+      --cov-report=html:coverage_html
+      -v
+  coverage: '/^TOTAL\s+\d+\s+\d+\s+(\d+)%/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: datalake_pipeline/coverage.xml
+      junit: datalake_pipeline/report.xml
+    paths:
+      - datalake_pipeline/coverage_html/
+    expire_in: 1 week
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  STAGE 3 — BUILD                                                        ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+api:docker-build:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    - |
+      IMAGE_SHA="$CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA"
+      IMAGE_BRANCH="$CI_REGISTRY_IMAGE/api:$CI_COMMIT_REF_SLUG"
+
+      echo "=== Build image Docker ==="
+      docker build
+        --label "git.commit=$CI_COMMIT_SHA"
+        --label "git.branch=$CI_COMMIT_REF_NAME"
+        --label "build.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        -t "$IMAGE_SHA"
+        ./datalake_pipeline
+
+      echo "=== Push image (SHA) ==="
+      docker push "$IMAGE_SHA"
+
+      echo "=== Tag branche : $CI_COMMIT_REF_SLUG ==="
+      docker tag "$IMAGE_SHA" "$IMAGE_BRANCH"
+      docker push "$IMAGE_BRANCH"
+
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        echo "=== Tag latest (main) ==="
+        docker tag "$IMAGE_SHA" "$CI_REGISTRY_IMAGE/api:latest"
+        docker push "$CI_REGISTRY_IMAGE/api:latest"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+      when: on_success
+  needs:
+    - backend:unit-tests
+
+frontend:build-prod:
+  stage: build
+  image: $NODE_IMAGE
+  <<: *cache-npm
+  before_script:
+    - cd frontend
+    - npm ci --quiet
+  script:
+    - echo "=== Build production React ==="
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+      when: on_success
+  needs:
+    - backend:unit-tests
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  STAGE 4 — DEPLOY (manuel, main uniquement)                             ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+#
+# Prérequis sur le serveur staging :
+#   - Docker + docker compose installés
+#   - Répertoire ~/medrag/ avec un docker-compose.yml de production
+#   - Variables GitLab : SSH_PRIVATE_KEY, STAGING_HOST, STAGING_USER
+# ─────────────────────────────────────────────────────────────────────────────
+
+deploy:staging:
+  stage: deploy
+  image: alpine:latest
+  environment:
+    name: staging
+    url: http://$STAGING_HOST:8000
+  before_script:
+    - apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    - |
+      echo "=== Déploiement staging ($STAGING_HOST) ==="
+      ssh "$STAGING_USER@$STAGING_HOST" "
+        set -e
+        cd ~/medrag
+
+        # Mettre à jour l'image
+        docker pull $CI_REGISTRY_IMAGE/api:latest
+
+        # Injecter les variables d'environnement
+        cat > .env <<ENV
+      ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+      CLAUDE_MODEL=claude-sonnet-4-6
+      PG_DSN=postgresql://medrag:medrag_2024@postgres:5432/medrag
+      MONGO_URI=mongodb://medrag:medrag_2024@mongodb:27017/
+      ENV
+
+        # Redémarrer l'API
+        docker compose up -d medrag-api
+
+        # Vérifier le health check
+        sleep 10
+        curl -sf http://localhost:8000/api/health || exit 1
+        echo 'Déploiement OK'
+      "
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  allow_failure: true
+  needs:
+    - api:docker-build

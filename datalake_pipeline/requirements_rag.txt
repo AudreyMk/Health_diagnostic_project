@@ -1,0 +1,21 @@
+# MedRAG Engine — dépendances
+# pip install -r requirements_rag.txt
+
+# API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+
+# LLM
+anthropic>=0.40.0
+
+# Embedding
+sentence-transformers>=2.7.0
+torch>=2.0.0
+
+# Bases de données
+psycopg2-binary>=2.9.9
+pymongo>=4.6.0
+
+# Config
+python-dotenv>=1.0.0

@@ -1,0 +1,19 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "node_modules", "frontend", "datalake_pipeline/processed"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore  = [
+    "E501",   # line too long (géré par line-length)
+    "N806",   # variable name in function should be lowercase (OK pour les dataclasses)
+    "UP007",  # use X | Y for type hints (compatibilité Python 3.9)
+]
+
+[tool.pytest.ini_options]
+testpaths     = ["datalake_pipeline/tests"]
+python_files  = ["test_*.py"]
+python_classes= ["Test*"]
+python_functions = ["test_*"]
+addopts       = "-v --tb=short"

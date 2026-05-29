@@ -1,0 +1,36 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Secrets (ne jamais committer)
+.env
+**/datalake_pipeline/.env
+
+# macOS
+.DS_Store
+
+# Données générées volumineuses — régénérer avec :
+#   python datalake_pipeline/unified_data_processor.py ...
+datalake_pipeline/processed/
+
+# Logs
+*.log
+datalake_pipeline/*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Coverage
+datalake_pipeline/coverage.xml
+datalake_pipeline/coverage_html/
+datalake_pipeline/report.xml
+
+# Cache pip/npm
+.cache/

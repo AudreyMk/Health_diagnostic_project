@@ -1,0 +1,159 @@
+##############################################################################
+# docker-compose.yml - Infra locale projet M2 RAG Medical
+#
+# Services :
+#   - PostgreSQL 16 + pgvector   (embeddings, retrieval)
+#   - MongoDB 7                  (centres de sante FINESS, geodata)
+#   - pgAdmin                    (UI pour explorer PostgreSQL)
+#   - Mongo Express              (UI pour explorer MongoDB)
+#
+# Usage :
+#   docker compose up -d             # Demarrer tout
+#   docker compose ps                # Verifier les statuts
+#   docker compose logs -f postgres  # Suivre les logs PostgreSQL
+#   docker compose down              # Arreter tout
+#   docker compose down -v           # Arreter + supprimer les volumes
+#
+# Acces :
+#   PostgreSQL   -> localhost:5432  (user: medrag / pass: medrag_2024 / db: medrag)
+#   MongoDB      -> localhost:27017 (user: medrag / pass: medrag_2024 / db: medrag)
+#   pgAdmin      -> http://localhost:5050 (admin@medrag.local / admin)
+#   MongoExpress -> http://localhost:8081 (admin / admin)
+#
+##############################################################################
+
+services:
+
+  # ==========================================================================
+  # PostgreSQL 16 + pgvector
+  # Stocke : embeddings des documents medicaux, metadonnees patients
+  # ==========================================================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    platform: linux/amd64
+    container_name: medrag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medrag
+      POSTGRES_PASSWORD: medrag_2024
+      POSTGRES_DB: medrag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-postgres.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medrag -d medrag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # MongoDB 7
+  # Stocke : centres de sante FINESS avec index geospatial 2dsphere
+  # ==========================================================================
+  mongodb:
+    image: mongo:7
+    platform: linux/amd64
+    container_name: medrag-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: medrag
+      MONGO_INITDB_ROOT_PASSWORD: medrag_2024
+      MONGO_INITDB_DATABASE: medrag
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+      - ./docker/init-mongo.js:/docker-entrypoint-initdb.d/01-init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "-u", "medrag", "-p", "medrag_2024"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================================================
+  # pgAdmin 4 - Interface web pour PostgreSQL
+  # ==========================================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    platform: linux/amd64
+    container_name: medrag-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@medrag.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_LISTEN_PORT: 5050
+    ports:
+      - "5050:5050"
+    volumes:
+      - pgadmindata:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Mongo Express - Interface web pour MongoDB
+  # ==========================================================================
+  mongo-express:
+    image: mongo-express:latest
+    platform: linux/amd64
+    container_name: medrag-mongo-express
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: medrag
+      ME_CONFIG_MONGODB_ADMINPASSWORD: medrag_2024
+      ME_CONFIG_MONGODB_URL: mongodb://medrag:medrag_2024@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    ports:
+      - "8081:8081"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  # ==========================================================================
+  # MedRAG API — FastAPI + RAGEngine
+  # POST /api/suggest  : suggérer des pathologies
+  # GET  /api/health   : état des bases
+  # GET  /docs         : Swagger UI
+  # ==========================================================================
+  medrag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medrag-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      PG_DSN: postgresql://medrag:medrag_2024@postgres:5432/medrag
+      MONGO_URI: mongodb://medrag:medrag_2024@mongodb:27017/
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      EMBEDDING_MODEL: intfloat/multilingual-e5-base
+      TOP_K: "8"
+      TOP_K_CENTERS: "5"
+      MAX_DISTANCE_METERS: "20000"
+      MIN_SIMILARITY: "0.25"
+      PG_POOL_MIN: "2"
+      PG_POOL_MAX: "10"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  pgdata:
+    name: medrag-pgdata
+  mongodata:
+    name: medrag-mongodata
+  pgadmindata:
+    name: medrag-pgadmindata

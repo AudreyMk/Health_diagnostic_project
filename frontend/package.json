@@ -1,0 +1,25 @@
+{
+  "name": "medrag-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "leaflet": "^1.9.4",
+    "react-leaflet": "^4.2.1",
+    "lucide-react": "^0.400.0",
+    "marked": "^13.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.3.4",
+    "tailwindcss": "^3.4.6",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.40"
+  }
+}
