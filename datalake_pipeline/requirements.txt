@@ -1,10 +1,21 @@
-# Ingestion S3
-boto3>=1.34.0
+# Pipeline de données — dépendances
+# pip install -r requirements.txt
+
+# Téléchargement sources (DDXPlus, FINESS, mtsamples)
 requests>=2.31.0
 python-dotenv>=1.0.0
 
-# Bases locales (load_to_databases.py)
-pymongo>=4.6.0
-psycopg2-binary>=2.9.9
-sentence-transformers>=2.7.0
+# Traitement données
+pandas>=2.0.0
 tqdm>=4.66.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# Bases de données
+psycopg[binary]>=3.1.0
+psycopg-pool>=3.2.0
+pgvector>=0.3.0
+pymongo>=4.6.0
+
+# Embedding
+sentence-transformers>=2.7.0

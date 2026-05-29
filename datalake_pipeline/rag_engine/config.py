@@ -17,13 +17,17 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-base")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
-# Paramètres RAG
+# Paramètres RAG — retrieval à 3 pools
 TOP_K = int(os.getenv("TOP_K", "8"))
+TOP_K_PATHOLOGIES = int(os.getenv("TOP_K_PATHOLOGIES", "4"))   # pool 1 : pathologies
+TOP_K_PATIENTS    = int(os.getenv("TOP_K_PATIENTS", "3"))       # pool 2 : patients
+TOP_K_CLINICAL    = int(os.getenv("TOP_K_CLINICAL", "2"))       # pool 3 : mtsamples
 TOP_K_CENTERS = int(os.getenv("TOP_K_CENTERS", "5"))
 MAX_DISTANCE_METERS = int(os.getenv("MAX_DISTANCE_METERS", "20000"))
 MIN_SIMILARITY = float(os.getenv("MIN_SIMILARITY", "0.25"))
+AGE_RANGE = int(os.getenv("AGE_RANGE", "15"))                   # filtre démographique ± ans
 
-# Pool PostgreSQL
+# Pool PostgreSQL (psycopg3)
 PG_POOL_MIN = int(os.getenv("PG_POOL_MIN", "2"))
 PG_POOL_MAX = int(os.getenv("PG_POOL_MAX", "10"))
 

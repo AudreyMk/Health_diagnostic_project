@@ -1,15 +1,21 @@
 """
-Retriever pgvector + MongoDB pour le RAG médical.
+Retriever pgvector (psycopg3) + MongoDB — MedRAG v2
 
-PGRetriever  : appelle search_similar_documents() définie dans init-postgres.sql
-MongoRetriever : requête $near géospatiale sur la collection health_centers
+Trois pools de recherche PostgreSQL :
+  - search_pathologies()      : descriptions de pathologies enrichies
+  - search_similar_patients() : cas patients filtrés par âge/sexe
+  - search_clinical_cases()   : transcriptions cliniques réelles (mtsamples)
+
+Un pool MongoDB :
+  - search_nearby()           : centres de santé FINESS ($near géospatial)
 """
 import logging
 from typing import Optional
 
-import psycopg2
-import psycopg2.extras
-import psycopg2.pool
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+from pgvector.psycopg import register_vector
 from pymongo import MongoClient
 
 from .config import (
@@ -21,83 +27,134 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 
+def _configure_connection(conn: psycopg.Connection) -> None:
+    """Appelé à chaque nouvelle connexion du pool : active pgvector."""
+    register_vector(conn)
+
+
 class PGRetriever:
     """
-    Recherche par similarité cosinus dans pgvector.
-    Utilise un ThreadedConnectionPool pour supporter les requêtes concurrentes.
+    Recherche sémantique dans PostgreSQL via pgvector (psycopg3).
+    Pool de connexions géré par psycopg_pool.ConnectionPool.
+    Trois fonctions SQL dédiées : un pool par type de document.
     """
 
     def __init__(self):
-        self._pool = psycopg2.pool.ThreadedConnectionPool(
-            PG_POOL_MIN, PG_POOL_MAX, PG_DSN
+        self._pool = ConnectionPool(
+            conninfo=PG_DSN,
+            min_size=PG_POOL_MIN,
+            max_size=PG_POOL_MAX,
+            configure=_configure_connection,
+            kwargs={"row_factory": dict_row},
         )
-        logger.info(f"Pool PostgreSQL initialisé (min={PG_POOL_MIN}, max={PG_POOL_MAX})")
+        logger.info(f"Pool PostgreSQL (psycopg3) initialisé (min={PG_POOL_MIN}, max={PG_POOL_MAX})")
 
-    def search(
+    # ------------------------------------------------------------------
+    # Pool 1 — Pathologies enrichies
+    # ------------------------------------------------------------------
+
+    def search_pathologies(
         self,
         embedding: list[float],
         top_k: int = TOP_K,
         min_similarity: float = MIN_SIMILARITY,
     ) -> list[dict]:
-        conn = self._pool.getconn()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        """Retourne les pathologies les plus proches sémantiquement."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT * FROM search_similar_documents(%s::vector, %s, %s)",
+                    "SELECT * FROM search_pathologies(%s::vector, %s, %s)",
                     (embedding, top_k, min_similarity),
                 )
-                return [dict(row) for row in cur.fetchall()]
-        finally:
-            self._pool.putconn(conn)
+                return cur.fetchall()
+
+    # ------------------------------------------------------------------
+    # Pool 2 — Patients filtrés démographiquement
+    # ------------------------------------------------------------------
+
+    def search_similar_patients(
+        self,
+        embedding: list[float],
+        top_k: int = TOP_K,
+        min_similarity: float = 0.20,
+        age: Optional[int] = None,
+        sex: Optional[str] = None,
+        age_range: int = 15,
+    ) -> list[dict]:
+        """
+        Retourne des cas patients similaires.
+        Filtre optionnel : âge ± age_range et/ou sexe.
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM search_similar_patients(%s::vector, %s, %s, %s, %s, %s)",
+                    (embedding, top_k, min_similarity, age, sex, age_range),
+                )
+                return cur.fetchall()
+
+    # ------------------------------------------------------------------
+    # Pool 3 — Cas cliniques réels (mtsamples)
+    # ------------------------------------------------------------------
+
+    def search_clinical_cases(
+        self,
+        embedding: list[float],
+        top_k: int = 3,
+        min_similarity: float = MIN_SIMILARITY,
+    ) -> list[dict]:
+        """Retourne des transcriptions cliniques réelles similaires."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM search_clinical_cases(%s::vector, %s, %s)",
+                    (embedding, top_k, min_similarity),
+                )
+                return cur.fetchall()
+
+    # ------------------------------------------------------------------
+    # Utilitaires
+    # ------------------------------------------------------------------
 
     def get_all_pathologies(self) -> list[dict]:
-        """Retourne toutes les pathologies indexées (pour l'endpoint /pathologies)."""
-        conn = self._pool.getconn()
-        try:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        """Liste toutes les pathologies indexées (endpoint /pathologies)."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, pathology_fr, pathology_en, icd10, severity
+                    SELECT id, pathology_fr, pathology_en, icd10, icd11_code,
+                           severity, red_flags
                     FROM pathology_documents
                     ORDER BY pathology_fr
                     """
                 )
-                return [dict(row) for row in cur.fetchall()]
-        finally:
-            self._pool.putconn(conn)
+                return cur.fetchall()
 
     def get_stats(self) -> dict:
-        """Retourne les statistiques de la base pour /health."""
-        conn = self._pool.getconn()
-        try:
+        """Statistiques pour /health."""
+        with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT
-                        (SELECT COUNT(*) FROM pathology_documents) AS pathologies,
-                        (SELECT COUNT(*) FROM patient_descriptions) AS patients,
-                        (SELECT COUNT(*) FROM pathology_documents WHERE embedding IS NOT NULL) AS pathologies_vectorisees,
-                        (SELECT COUNT(*) FROM patient_descriptions WHERE embedding IS NOT NULL) AS patients_vectorises
+                        (SELECT COUNT(*) FROM pathology_documents)                               AS pathologies,
+                        (SELECT COUNT(*) FROM pathology_documents WHERE embedding IS NOT NULL)   AS pathologies_vectorisees,
+                        (SELECT COUNT(*) FROM patient_descriptions)                              AS patients,
+                        (SELECT COUNT(*) FROM patient_descriptions  WHERE embedding IS NOT NULL) AS patients_vectorises,
+                        (SELECT COUNT(*) FROM clinical_cases)                                    AS clinical_cases,
+                        (SELECT COUNT(*) FROM clinical_cases        WHERE embedding IS NOT NULL) AS clinical_cases_vectorises
                     """
                 )
                 row = cur.fetchone()
-                return {
-                    "pathologies": row[0],
-                    "patients": row[1],
-                    "pathologies_vectorisees": row[2],
-                    "patients_vectorises": row[3],
-                }
-        finally:
-            self._pool.putconn(conn)
+                return dict(row) if row else {}
 
-    def close(self):
-        self._pool.closeall()
+    def close(self) -> None:
+        self._pool.close()
 
 
 class MongoRetriever:
     """Recherche géospatiale $near sur les centres de santé FINESS."""
 
-    # Codes catégories prioritaires (urgences, CHU, CH, cliniques)
     PRIORITY_CATEGORIES = ["355", "146", "101", "124", "129", "131", "141"]
 
     def __init__(self):
@@ -117,10 +174,7 @@ class MongoRetriever:
         query: dict = {
             "location": {
                 "$near": {
-                    "$geometry": {
-                        "type": "Point",
-                        "coordinates": [longitude, latitude],
-                    },
+                    "$geometry": {"type": "Point", "coordinates": [longitude, latitude]},
                     "$maxDistance": max_distance,
                 }
             }
@@ -137,5 +191,5 @@ class MongoRetriever:
     def get_stats(self) -> dict:
         return {"health_centers": self.coll.count_documents({})}
 
-    def close(self):
+    def close(self) -> None:
         self.client.close()
