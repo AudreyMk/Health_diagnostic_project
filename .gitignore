@@ -14,23 +14,35 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Données générées volumineuses — régénérer avec :
-#   python datalake_pipeline/unified_data_processor.py ...
+# Données brutes volumineuses (DDXPlus, FINESS, mtsamples)
+datalake_pipeline/raw/
+data_brut/
+
+# Données traitées — régénérées par les scripts Phase B/C/D
 datalake_pipeline/processed/
+
+# Cache des appels API (ICD-11, Wikipedia)
+datalake_pipeline/.cache/
 
 # Logs
 *.log
 datalake_pipeline/*.log
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
+# Ancien frontend (React/Vite) — conservé en local, non poussé sur git
+# Pour le réactiver plus tard : retirer cette ligne, puis `git add frontend/` et commit
+frontend/
+
+# Artefacts de build et dépendances (couvre med-rag-product-ux et autres)
+**/node_modules/
+**/.next/
+**/.turbo/
+**/dist/
+**/.vite/
+
+# Archives
+*.zip
 
 # Coverage
 datalake_pipeline/coverage.xml
 datalake_pipeline/coverage_html/
 datalake_pipeline/report.xml
-
-# Cache pip/npm
-.cache/

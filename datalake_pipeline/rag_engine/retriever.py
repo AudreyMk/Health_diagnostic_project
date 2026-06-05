@@ -188,6 +188,31 @@ class MongoRetriever:
             results.append(doc)
         return results
 
+    def search_by_dept(self, dept: str, limit: int = 5) -> list[dict]:
+        """
+        Retourne des etablissements de sante dans un departement.
+        Priorite : hopitaux en premier, puis maisons de sante, cabinets, pharmacies.
+        """
+        PRIORITY_KEYWORDS = [
+            "hospitalier", "hopital", "clinique",
+            "sant", "medical", "cabinet", "pharmacie",
+        ]
+        results = []
+        # Recupere plus de docs et les classe par priorite
+        docs = list(self.coll.find({"dept": dept}).limit(limit * 4))
+        # Trie : hopitaux d abord
+        def priority(doc):
+            label = doc.get("category_label", "").lower()
+            for i, kw in enumerate(PRIORITY_KEYWORDS):
+                if kw in label:
+                    return i
+            return 99
+        docs.sort(key=priority)
+        for doc in docs[:limit]:
+            doc.pop("_id", None)
+            results.append(doc)
+        return results
+
     def get_stats(self) -> dict:
         return {"health_centers": self.coll.count_documents({})}
 

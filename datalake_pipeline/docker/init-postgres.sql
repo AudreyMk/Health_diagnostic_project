@@ -195,9 +195,52 @@ BEGIN
 END;
 $$;
 
+-- ==========================================================================
+-- TABLE : users — profils utilisateurs
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    email      TEXT UNIQUE NOT NULL,
+    password   TEXT NOT NULL,
+    age        INTEGER,
+    sex        CHAR(1),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ==========================================================================
+-- TABLE : sessions — tokens de connexion
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ==========================================================================
+-- TABLE : conversations — une conversation par utilisateur
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS conversations (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ==========================================================================
+-- TABLE : conversation_messages — historique des messages
+-- ==========================================================================
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id              BIGSERIAL PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    role            TEXT NOT NULL,   -- 'user' ou 'assistant'
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
 DO $$
 BEGIN
-    RAISE NOTICE '=== PostgreSQL MedRAG v2 initialisé ===';
+    RAISE NOTICE '=== PostgreSQL MedRAG v2 initialise ===';
     RAISE NOTICE 'Tables : pathology_documents, patient_descriptions, clinical_cases, query_logs';
+    RAISE NOTICE 'Tables : users, sessions, conversations, conversation_messages';
     RAISE NOTICE 'Fonctions : search_pathologies, search_similar_patients, search_clinical_cases';
 END $$;
