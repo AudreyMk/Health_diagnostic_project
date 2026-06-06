@@ -162,8 +162,14 @@ def _generate_report(conversation: list[dict]) -> dict | None:
         return None   # jamais bloquant
 
 
-def _execute_search(symptomes: str, embed_fn, pg, mongo, age, sex, dept) -> str:
-    """Exécute les 3 pools PostgreSQL + FINESS MongoDB."""
+def _execute_search(symptomes: str, embed_fn, pg, mongo, age, sex, dept,
+                    lat=None, lon=None) -> str:
+    """Exécute les 3 pools PostgreSQL + FINESS MongoDB.
+
+    Recherche d'établissements :
+    - si lat/lon connus  → search_nearby (rayon 50 km) + fallback search_by_dept si vide
+    - sinon              → search_by_dept (centroïde département)
+    """
     embedding   = embed_fn("query: " + symptomes)
     pathologies = pg.search_pathologies(embedding, TOP_K_PATHOLOGIES, MIN_SIMILARITY)
     patients    = pg.search_similar_patients(embedding, TOP_K_PATIENTS, 0.20, age, sex, AGE_RANGE)
@@ -190,19 +196,37 @@ def _execute_search(symptomes: str, embed_fn, pg, mongo, age, sex, dept) -> str:
         for c in clinical:
             parts.append(f"- {c.get('medical_specialty','—')}: {c.get('assessment','—')}")
 
-    if dept and mongo:
-        centers = mongo.search_by_dept(dept, limit=5)
+    if mongo:
+        centers = []
+        source  = None
+
+        # Priorité 1 : recherche géolocalisée si on connaît la position du patient
+        if lat is not None and lon is not None:
+            centers = mongo.search_nearby(
+                longitude=lon, latitude=lat,
+                max_distance=50_000,   # 50 km
+                limit=5,
+            )
+            if centers:
+                source = f"à proximité (rayon 50 km autour de votre position)"
+
+        # Fallback : recherche par département
+        if not centers and dept:
+            centers = mongo.search_by_dept(dept, limit=5)
+            if centers:
+                source = f"département {dept}"
+
         if centers:
-            parts.append(f"\n=== ÉTABLISSEMENTS DE SANTÉ — Département {dept} ===")
+            parts.append(f"\n=== ÉTABLISSEMENTS DE SANTÉ — {source} ===")
             for c in centers:
                 parts.append(
                     f"- {c['name']} | {c.get('category_label','')} | "
                     f"{c.get('address','')} | Tél: {c.get('phone','N/A')}"
                 )
-        else:
+        elif dept:
             parts.append(f"\n=== Aucun établissement FINESS pour le département {dept} ===")
-    elif not dept:
-        parts.append("\n=== Localisation non renseignée — établissements indisponibles ===")
+        else:
+            parts.append("\n=== Localisation non renseignée — établissements indisponibles ===")
 
     return "\n".join(parts) if parts else "Aucun résultat dans la base médicale."
 
@@ -252,11 +276,14 @@ def _build_patient_context(profile: dict | None, age, sex, dept) -> str:
 
 
 def chat(messages: list[dict], embed_fn, pg, mongo=None,
-         age=None, sex=None, dept=None, profile=None) -> dict:
+         age=None, sex=None, dept=None, profile=None,
+         lat=None, lon=None) -> dict:
     """
     Boucle agentique MedRAG.
     Retourne {"text": str, "triage": dict|None, "report": dict|None}.
-    profile : dict du profil médical patient_profiles (None si pas de profil).
+    profile  : dict du profil médical patient_profiles (None si pas de profil).
+    lat, lon : coordonnées WGS84 du patient (optionnelles) — si fournies, la recherche
+               d'établissements est géolocalisée ($near) au lieu d'utiliser le dept.
     """
     system = SYSTEM_PROMPT
     ctx = _build_patient_context(profile, age, sex, dept)
@@ -277,7 +304,8 @@ def chat(messages: list[dict], embed_fn, pg, mongo=None,
         if response.stop_reason == "tool_use":
             tool   = next(b for b in response.content if b.type == "tool_use")
             result = _execute_search(
-                tool.input.get("symptomes", ""), embed_fn, pg, mongo, age, sex, dept
+                tool.input.get("symptomes", ""), embed_fn, pg, mongo, age, sex, dept,
+                lat=lat, lon=lon,
             )
             working.append({"role": "assistant", "content": response.content})
             working.append({
