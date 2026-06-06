@@ -20,6 +20,9 @@ import {
   Plus,
   MessageSquare,
   ChevronRight,
+  PanelRightClose,
+  PanelRightOpen,
+  GripVertical,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ChatPhase, Message } from '@/lib/types';
@@ -161,6 +164,60 @@ export default function ConsultationPage({ onNavigate }: ConsultationPageProps) 
   const [isTyping, setIsTyping] = useState(false);
   const [showSheet, setShowSheet] = useState(false);
   const [isLoadingConv, setIsLoadingConv] = useState(false);
+
+  // ── Sidebar droite redimensionnable + collapsable ──────────────────────
+  // Largeur en px (entre SIDEBAR_MIN et SIDEBAR_MAX), persistée dans localStorage.
+  const SIDEBAR_MIN = 320;
+  const SIDEBAR_MAX = 720;
+  const SIDEBAR_DEFAULT = 460;
+  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+
+  // Restaure depuis localStorage au mount
+  useEffect(() => {
+    try {
+      const w = localStorage.getItem('medrag.sidebarWidth');
+      const c = localStorage.getItem('medrag.sidebarCollapsed');
+      if (w) {
+        const n = parseInt(w, 10);
+        if (!isNaN(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) setSidebarWidth(n);
+      }
+      if (c === '1') setSidebarCollapsed(true);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Drag handlers globaux (mousemove + mouseup) actifs uniquement pendant le resize
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (e: MouseEvent) => {
+      // La sidebar est ancrée à droite : sa largeur = innerWidth - clientX
+      const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, window.innerWidth - e.clientX));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      setIsResizing(false);
+      try { localStorage.setItem('medrag.sidebarWidth', String(sidebarWidth)); } catch { /* ignore */ }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, sidebarWidth]);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('medrag.sidebarCollapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -458,21 +515,70 @@ export default function ConsultationPage({ onNavigate }: ConsultationPageProps) 
           </div>
         </div>
 
-        {/* ── Panneau droit (XL) — élargi à 400px pour la carte ── */}
-        <div className="hidden xl:flex flex-col w-[400px] shrink-0 overflow-y-auto min-h-0">
-          <div className="p-4">
-            {chatPhase !== 'orientation' ? (
-              <SummaryPanel consultation={currentConsultation} isTyping={isTyping} />
-            ) : (
-              <OrientationPanel
-                orientation={currentConsultation.orientation!}
-                symptomSummary={currentConsultation.symptomSummary}
-                onViewSheet={() => setShowSheet(true)}
-                hasSheet={!!currentConsultation.preConsultationSheet}
-              />
-            )}
+        {/* ── Panneau droit (XL) — redimensionnable + collapsable ── */}
+        {sidebarCollapsed ? (
+          // ─ Mode rétracté : barre verticale fine avec bouton d'expansion ─
+          <div className="hidden xl:flex flex-col w-10 shrink-0 border-l border-border/50 bg-muted/30 items-center py-3">
+            <button
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              title="Déplier le panneau"
+              aria-label="Déplier le panneau latéral"
+            >
+              <PanelRightOpen className="w-4 h-4" />
+            </button>
+            <div className="mt-3 text-[10px] text-muted-foreground/70 font-medium tracking-wider [writing-mode:vertical-rl] rotate-180">
+              {chatPhase === 'orientation' ? 'ORIENTATION' : 'RÉSUMÉ'}
+            </div>
           </div>
-        </div>
+        ) : (
+          // ─ Mode normal : sidebar resizable avec drag handle à gauche ─
+          <div
+            className="hidden xl:flex flex-col shrink-0 overflow-hidden min-h-0 relative border-l border-border/50"
+            style={{ width: `${sidebarWidth}px` }}
+          >
+            {/* Drag handle (poignée de redimensionnement) */}
+            <div
+              onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
+              onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+              className={`group absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 transition-colors ${
+                isResizing ? 'bg-primary/40' : 'hover:bg-primary/25'
+              }`}
+              title="Glisser pour redimensionner — double-clic pour réinitialiser"
+            >
+              <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <GripVertical className="w-3.5 h-3.5 text-primary/70" />
+              </div>
+            </div>
+
+            {/* Bouton de collapse en haut à droite */}
+            <div className="absolute top-2 right-2 z-10">
+              <button
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-md bg-background/80 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 backdrop-blur-sm transition-colors"
+                title="Réduire le panneau"
+                aria-label="Réduire le panneau latéral"
+              >
+                <PanelRightClose className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4 pr-3 pt-12">
+                {chatPhase !== 'orientation' ? (
+                  <SummaryPanel consultation={currentConsultation} isTyping={isTyping} />
+                ) : (
+                  <OrientationPanel
+                    orientation={currentConsultation.orientation!}
+                    symptomSummary={currentConsultation.symptomSummary}
+                    onViewSheet={() => setShowSheet(true)}
+                    hasSheet={!!currentConsultation.preConsultationSheet}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mobile — bouton fiche flottant */}

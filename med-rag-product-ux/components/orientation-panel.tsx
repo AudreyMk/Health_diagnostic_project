@@ -21,13 +21,14 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { apiGetCenters, type ApiCenter } from '@/lib/api';
+import { haversineKm, formatDistance } from '@/lib/geo';
 import type { OrientationType, SymptomSummary } from '@/lib/types';
 
 // ── Chargement dynamique de la carte (Leaflet incompatible avec SSR) ──────────
 const HealthMap = dynamic(() => import('./health-map'), {
   ssr: false,
   loading: () => (
-    <div className="h-[280px] bg-muted/30 rounded-xl flex items-center justify-center">
+    <div className="h-[300px] bg-muted/30 rounded-xl flex items-center justify-center">
       <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
     </div>
   ),
@@ -379,35 +380,56 @@ export default function OrientationPanel({
             {/* Liste des centres (toujours visible quand dispo) */}
             {centers !== null && centers.length > 0 && (
               <div className="space-y-2 mt-1">
-                {centers.slice(0, 6).map((center, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2.5 p-2.5 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
-                  >
-                    <MapPin className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium leading-snug truncate">
-                        {center.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {center.category_label}
-                      </p>
-                      {center.address && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {center.address}
+                {centers.slice(0, 6).map((center, i) => {
+                  // Distance calculée si on a un point d'origine (GPS live ou profil)
+                  // et si le centre lui-même est géolocalisé.
+                  const origin =
+                    userPos ?? (profileLat != null && profileLon != null
+                      ? { lat: profileLat, lng: profileLon }
+                      : null);
+                  const distKm =
+                    origin && center.lat != null && center.lon != null
+                      ? haversineKm(origin.lat, origin.lng, center.lat, center.lon)
+                      : null;
+
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2.5 p-2.5 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium leading-snug truncate flex-1">
+                            {center.name}
+                          </p>
+                          {distKm !== null && (
+                            <span className="text-[10px] font-semibold tabular-nums shrink-0 px-1.5 py-0.5 bg-primary/10 text-primary rounded-md">
+                              {formatDistance(distKm)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {center.category_label}
                         </p>
-                      )}
-                      {center.phone && (
-                        <a
-                          href={`tel:${center.phone.replace(/\s/g, '')}`}
-                          className="text-xs text-primary hover:underline mt-0.5 inline-block"
-                        >
-                          📞 {center.phone}
-                        </a>
-                      )}
+                        {center.address && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {center.address}
+                          </p>
+                        )}
+                        {center.phone && (
+                          <a
+                            href={`tel:${center.phone.replace(/\s/g, '')}`}
+                            className="text-xs text-primary hover:underline mt-0.5 inline-flex items-center gap-1"
+                          >
+                            <Phone className="w-3 h-3" />
+                            {center.phone}
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
