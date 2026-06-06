@@ -225,9 +225,33 @@ export interface ApiCenter {
   name: string;
   address: string;
   category_label: string;
+  category_code?: string;
   phone?: string;
+  dept?: string;
+  lat: number | null;     // extrait de location.coordinates côté backend
+  lon: number | null;
 }
 
-export async function apiGetCenters(dept: string): Promise<{ centers: ApiCenter[] }> {
-  return apiFetch<{ centers: ApiCenter[] }>(`/centers?dept=${dept}`);
+export interface ApiCentersResponse {
+  centers: ApiCenter[];
+  source: 'nearby' | 'dept' | 'none';
+}
+
+/**
+ * Récupère les établissements de santé.
+ * - Si lat/lon fournis → recherche géolocalisée (rayon = radius mètres, défaut 50 km)
+ * - Sinon, dept fourni → recherche par département
+ * - Sinon → le backend utilise lat/lon ou dept du profil utilisateur connecté
+ */
+export async function apiGetCenters(
+  params: { dept?: string; lat?: number; lon?: number; radius?: number; limit?: number } = {}
+): Promise<ApiCentersResponse> {
+  const qs = new URLSearchParams();
+  if (params.dept)             qs.set('dept',   params.dept);
+  if (params.lat   !== undefined) qs.set('lat',    String(params.lat));
+  if (params.lon   !== undefined) qs.set('lon',    String(params.lon));
+  if (params.radius)           qs.set('radius', String(params.radius));
+  if (params.limit)            qs.set('limit',  String(params.limit));
+  const query = qs.toString();
+  return apiFetch<ApiCentersResponse>(`/centers${query ? `?${query}` : ''}`);
 }

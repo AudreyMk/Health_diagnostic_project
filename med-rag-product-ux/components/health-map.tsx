@@ -1,20 +1,20 @@
-'use client';
+﻿'use client';
 
 /**
- * health-map.tsx — Carte Leaflet des établissements de santé à proximité.
+ * health-map.tsx â€” Carte Leaflet des Ã©tablissements de santÃ© Ã  proximitÃ©.
  *
- * Ce composant est TOUJOURS chargé via `dynamic(..., { ssr: false })`.
- * Leaflet nécessite `window` donc il ne peut pas tourner côté serveur.
+ * Ce composant est TOUJOURS chargÃ© via `dynamic(..., { ssr: false })`.
+ * Leaflet nÃ©cessite `window` donc il ne peut pas tourner cÃ´tÃ© serveur.
  *
- * Sources de données :
- *   - Position GPS de l'utilisateur (navigator.geolocation)
- *   - Coordonnées des centres géocodées via Nominatim (OpenStreetMap)
+ * Sources de donnÃ©es :
+ *   - Position GPS de l'utilisateur (navigator.geolocation ou profil patient)
+ *   - CoordonnÃ©es des centres : directement depuis le backend (FINESS gÃ©olocalisÃ©)
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ApiCenter } from '@/lib/api';
 
-// ── Légende des couleurs par type d'établissement ─────────────────────────────
+// â”€â”€ LÃ©gende des couleurs par type d'Ã©tablissement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getCenterColor(categoryLabel: string): string {
   const cat = categoryLabel.toLowerCase();
@@ -28,36 +28,25 @@ function getCenterColor(categoryLabel: string): string {
     cat.includes('chr')
   )
     return '#f97316';
-  if (cat.includes('cabinet') || cat.includes('médecin') || cat.includes('medecin'))
+  if (cat.includes('cabinet') || cat.includes('mÃ©decin') || cat.includes('medecin'))
     return '#8b5cf6';
-  if (cat.includes('sant')) return '#0ea5e9'; // maison de santé
+  if (cat.includes('sant')) return '#0ea5e9'; // maison de santÃ©
   return '#3b82f6';
 }
 
-// ── Géocodage Nominatim ───────────────────────────────────────────────────────
-
-async function geocodeAddress(
-  address: string
-): Promise<{ lat: number; lng: number } | null> {
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-      address + ', France'
-    )}&format=json&countrycodes=fr&limit=1`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'MedRAG/1.0 (student project, contact: non-commercial)' },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-    }
-  } catch {
-    /* silencieux */
-  }
-  return null;
+// Distance Haversine entre deux points GPS (en km).
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface HealthMapProps {
   userLat: number;
@@ -65,17 +54,23 @@ interface HealthMapProps {
   centers: ApiCenter[];
 }
 
-// ── Composant ─────────────────────────────────────────────────────────────────
+// â”€â”€ Composant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function HealthMap({ userLat, userLng, centers }: HealthMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<ReturnType<typeof import('leaflet')['map']> | null>(null);
-  const [geocodedCount, setGeocodedCount] = useState(0);
+
+  // Filtre les centres ayant des coordonnÃ©es valides (le backend FINESS les fournit ;
+  // on garde un garde-fou au cas oÃ¹).
+  const geoCenters = centers.filter(
+    (c): c is ApiCenter & { lat: number; lon: number } =>
+      c.lat != null && c.lon != null
+  );
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Import synchrone de Leaflet (sûr ici car ssr: false garantit l'environnement browser)
+    // Import synchrone de Leaflet (sÃ»r ici car ssr: false garantit l'environnement browser)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const L = require('leaflet') as typeof import('leaflet');
 
@@ -85,23 +80,23 @@ export default function HealthMap({ userLat, userLng, centers }: HealthMapProps)
       mapRef.current = null;
     }
 
-    // ── Init carte ──────────────────────────────────────────────────────────
+    // â”€â”€ Init carte â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const map = L.map(mapContainerRef.current, {
       center: [userLat, userLng],
-      zoom: 14,
+      zoom: 13,
       zoomControl: true,
       scrollWheelZoom: false,
       attributionControl: true,
     });
     mapRef.current = map;
 
-    // ── Fond de carte OpenStreetMap ─────────────────────────────────────────
+    // â”€â”€ Fond de carte OpenStreetMap â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      attribution: 'Â© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 18,
     }).addTo(map);
 
-    // ── Marqueur utilisateur (cercle bleu pulsé) ────────────────────────────
+    // â”€â”€ Marqueur utilisateur (cercle bleu) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const userIcon = L.divIcon({
       html: `
         <div style="
@@ -125,7 +120,7 @@ export default function HealthMap({ userLat, userLng, centers }: HealthMapProps)
     L.marker([userLat, userLng], { icon: userIcon })
       .addTo(map)
       .bindPopup(
-        `<div style="font-size:13px;font-weight:600">📍 Votre position</div>`,
+        `<div style="font-size:13px;font-weight:600">ðŸ“ Votre position</div>`,
         { closeButton: false }
       );
 
@@ -139,64 +134,50 @@ export default function HealthMap({ userLat, userLng, centers }: HealthMapProps)
       dashArray: '4 4',
     }).addTo(map);
 
-    // ── Géocodage progressif des centres ───────────────────────────────────
+    // â”€â”€ Markers des centres FINESS (coords directes du backend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const markersLayer = L.layerGroup().addTo(map);
-    let localCount = 0;
+    const bounds = L.latLngBounds([[userLat, userLng]]);
 
-    const geocodeCenters = async () => {
-      // Limite à 6 centres, délai de 1.1s entre chaque (limite Nominatim : 1 req/s)
-      const toProcess = centers.slice(0, 6);
+    geoCenters.forEach((center) => {
+      const color = getCenterColor(center.category_label);
+      const distanceKm = haversineKm(userLat, userLng, center.lat, center.lon);
 
-      for (let i = 0; i < toProcess.length; i++) {
-        // Délai entre requêtes Nominatim (sauf pour le premier)
-        if (i > 0) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 1200));
-        }
+      const icon = L.divIcon({
+        html: `
+          <div style="
+            width:14px;height:14px;
+            background:${color};
+            border:2.5px solid white;
+            border-radius:4px;
+            box-shadow:0 2px 5px rgba(0,0,0,0.35);
+            transform:rotate(45deg);
+          "></div>`,
+        className: '',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
 
-        // Vérifie que la carte est toujours montée
-        if (!mapRef.current) break;
+      L.marker([center.lat, center.lon], { icon })
+        .addTo(markersLayer)
+        .bindPopup(`
+          <div style="font-size:12px;max-width:240px;line-height:1.4">
+            <strong style="font-size:13px">${center.name}</strong><br/>
+            <span style="color:#6b7280;font-size:11px">${center.category_label}</span><br/>
+            <span>${center.address}</span>
+            ${center.phone ? `<br/><span>ðŸ“ž ${center.phone}</span>` : ''}
+            <br/><span style="color:#6b7280;font-size:11px">â‰ˆ ${distanceKm.toFixed(1)} km</span>
+          </div>
+        `);
 
-        const center = toProcess[i];
-        const coords = await geocodeAddress(center.address);
+      bounds.extend([center.lat, center.lon]);
+    });
 
-        if (coords && mapRef.current) {
-          const color = getCenterColor(center.category_label);
+    // Ajuste le zoom pour englober tous les markers (avec une marge)
+    if (geoCenters.length > 0) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    }
 
-          const icon = L.divIcon({
-            html: `
-              <div style="
-                width:14px;height:14px;
-                background:${color};
-                border:2.5px solid white;
-                border-radius:4px;
-                box-shadow:0 2px 5px rgba(0,0,0,0.35);
-                transform:rotate(45deg);
-              "></div>`,
-            className: '',
-            iconSize: [14, 14],
-            iconAnchor: [7, 7],
-          });
-
-          L.marker([coords.lat, coords.lng], { icon })
-            .addTo(markersLayer)
-            .bindPopup(`
-              <div style="font-size:12px;max-width:220px;line-height:1.4">
-                <strong style="font-size:13px">${center.name}</strong><br/>
-                <span style="color:#6b7280;font-size:11px">${center.category_label}</span><br/>
-                <span>${center.address}</span>
-                ${center.phone ? `<br/><span>📞 ${center.phone}</span>` : ''}
-              </div>
-            `);
-
-          localCount++;
-          setGeocodedCount(localCount);
-        }
-      }
-    };
-
-    geocodeCenters();
-
-    // ── Cleanup ──────────────────────────────────────────────────────────────
+    // â”€â”€ Cleanup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     return () => {
       if (mapRef.current) {
         mapRef.current.remove();
@@ -204,7 +185,7 @@ export default function HealthMap({ userLat, userLng, centers }: HealthMapProps)
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userLat, userLng, centers.length]);
+  }, [userLat, userLng, geoCenters.length]);
 
   return (
     <div className="relative">
@@ -212,18 +193,13 @@ export default function HealthMap({ userLat, userLng, centers }: HealthMapProps)
         ref={mapContainerRef}
         style={{ height: '280px', width: '100%', borderRadius: '10px', overflow: 'hidden' }}
       />
-      {/* Indicateur de géocodage */}
-      {geocodedCount === 0 && centers.length > 0 && (
+      {/* Compteur d'Ã©tablissements affichÃ©s */}
+      {geoCenters.length > 0 && (
         <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm">
-          Localisation des centres…
+          {geoCenters.length} Ã©tablissement{geoCenters.length > 1 ? 's' : ''} Ã  proximitÃ©
         </div>
       )}
-      {geocodedCount > 0 && (
-        <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm">
-          {geocodedCount} centre{geocodedCount > 1 ? 's' : ''} localisé{geocodedCount > 1 ? 's' : ''}
-        </div>
-      )}
-      {/* Légende */}
+      {/* LÃ©gende */}
       <div className="absolute top-2 right-2 bg-white/90 dark:bg-card/90 text-[11px] px-2 py-1.5 rounded-lg shadow-sm space-y-1 backdrop-blur-sm">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-full bg-[#3b82f6] border border-white/80" />
@@ -235,13 +211,14 @@ export default function HealthMap({ userLat, userLng, centers }: HealthMapProps)
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-[#f97316] border border-white/80 rotate-45" />
-          <span>Hôpital</span>
+          <span>HÃ´pital</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm bg-[#8b5cf6] border border-white/80 rotate-45" />
-          <span>Cabinet médical</span>
+          <span>Cabinet mÃ©dical</span>
         </div>
       </div>
     </div>
   );
 }
+

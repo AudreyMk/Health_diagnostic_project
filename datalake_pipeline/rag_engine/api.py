@@ -212,6 +212,23 @@ def get_triage(conv_id: str, user: dict = Depends(get_user)):
 
 # ── Établissements de santé ───────────────────────────────────────────────────
 
+def _flatten_center(doc: dict) -> dict:
+    """Aplatit un doc FINESS Mongo : extrait location.coordinates -> lat/lon top-level.
+    Permet au frontend d'afficher les markers sans géocodage externe (Nominatim)."""
+    coords = (doc.get("location") or {}).get("coordinates") or [None, None]
+    lon, lat = (coords + [None, None])[:2]
+    return {
+        "name":           doc.get("name"),
+        "address":        doc.get("address"),
+        "category_label": doc.get("category_label"),
+        "category_code":  doc.get("category_code"),
+        "phone":          doc.get("phone"),
+        "dept":           doc.get("dept"),
+        "lat":            lat,
+        "lon":            lon,
+    }
+
+
 @router.get("/centers")
 def get_centers(
     dept:   str   | None = None,
@@ -221,24 +238,36 @@ def get_centers(
     limit:  int   = 8,
     user:   dict  = Depends(get_user),
 ):
-    """Retourne des établissements FINESS.
+    """Retourne des établissements FINESS, avec lat/lon à plat.
 
     - Si lat & lon fournis → recherche géolocalisée ($near) dans le rayon donné (m).
     - Sinon, si dept fourni → recherche par département.
-    - Fallback : recherche par département du profil utilisateur si disponible.
+    - Fallback : profil utilisateur (lat/lon prioritaire, sinon dept).
     """
     mongo = state["mongo"]
 
+    # 1. Coords explicites dans la requête
     if lat is not None and lon is not None:
         centers = mongo.search_nearby(longitude=lon, latitude=lat,
                                       max_distance=radius, limit=limit)
         if centers:
-            return {"centers": centers, "source": "nearby"}
+            return {"centers": [_flatten_center(c) for c in centers], "source": "nearby"}
 
+    # 2. Coords du profil utilisateur (saisies à l'onboarding)
+    u_lat, u_lon = user.get("lat"), user.get("lon")
+    if u_lat is not None and u_lon is not None:
+        centers = mongo.search_nearby(longitude=u_lon, latitude=u_lat,
+                                      max_distance=radius, limit=limit)
+        if centers:
+            return {"centers": [_flatten_center(c) for c in centers], "source": "nearby"}
+
+    # 3. Fallback département
     target_dept = dept or user.get("dept")
     if target_dept:
-        return {"centers": mongo.search_by_dept(target_dept, limit=limit),
-                "source": "dept"}
+        return {
+            "centers": [_flatten_center(c) for c in mongo.search_by_dept(target_dept, limit=limit)],
+            "source": "dept",
+        }
 
     return {"centers": [], "source": "none"}
 
