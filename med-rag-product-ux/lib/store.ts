@@ -96,7 +96,14 @@ export const useAppStore = create<AppState>()(
       onboardingCompleted: false,
       onboardingData: {
         step: 1,
-        basicInfo: { age: '', sex: '', department: '' },
+        basicInfo: {
+          age: '',
+          sex: '',
+          department: '',
+          lat: null,
+          lon: null,
+          locationStatus: 'idle',
+        },
         medicalContext: { medicalHistory: '', chronicConditions: '', otherInfo: '' },
         treatmentsAllergies: {
           currentTreatments: '',
@@ -208,9 +215,16 @@ export const useAppStore = create<AppState>()(
         const age = parseInt(onboardingData.basicInfo.age) || null;
         const sexRaw = onboardingData.basicInfo.sex;
         const sex = sexRaw === 'male' ? 'M' : sexRaw === 'female' ? 'F' : null;
+        const { lat, lon } = onboardingData.basicInfo;
 
-        // 1. Met à jour les infos de base dans users (dept, age, sex)
-        await apiUpdateAuthProfile({ dept: dept || undefined, age: age || undefined, sex: sex || undefined });
+        // 1. Met à jour les infos de base dans users (dept, age, sex, lat, lon)
+        await apiUpdateAuthProfile({
+          dept: dept || undefined,
+          age:  age  || undefined,
+          sex:  sex  || undefined,
+          lat:  lat  ?? undefined,
+          lon:  lon  ?? undefined,
+        });
 
         // 2. Sauvegarde le profil patient complet
         const antecedents = onboardingData.medicalContext.medicalHistory
@@ -243,6 +257,8 @@ export const useAppStore = create<AppState>()(
           age: age || 0,
           sex: sex === 'M' ? 'male' : sex === 'F' ? 'female' : 'other',
           department: dept || '',
+          lat: lat ?? currentUser.lat,
+          lon: lon ?? currentUser.lon,
           medicalHistory: antecedents,
           chronicConditions,
           currentTreatments: treatments.map((t) => t.name),

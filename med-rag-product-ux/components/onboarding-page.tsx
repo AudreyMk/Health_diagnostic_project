@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Stethoscope, ArrowLeft, ArrowRight, Check, User, Heart, Pill } from 'lucide-react';
+import { Stethoscope, ArrowLeft, ArrowRight, Check, User, Heart, Pill, MapPin, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DEPARTMENTS = [
@@ -27,6 +27,47 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const totalSteps = 3;
+
+  // ── Géolocalisation navigateur (HTML5) ───────────────────────────────────
+  // Permet à MedRAG d'afficher des établissements à proximité réelle (et non par département).
+  // Les coordonnées sont envoyées à PUT /auth/profile lors de completeOnboarding().
+  const handleUseLocation = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      updateOnboardingData({
+        basicInfo: { ...onboardingData.basicInfo, locationStatus: 'error' },
+      });
+      toast.error("Votre navigateur ne supporte pas la géolocalisation.");
+      return;
+    }
+    updateOnboardingData({
+      basicInfo: { ...onboardingData.basicInfo, locationStatus: 'requesting' },
+    });
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        updateOnboardingData({
+          basicInfo: {
+            ...onboardingData.basicInfo,
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            locationStatus: 'granted',
+          },
+        });
+        toast.success('Position enregistrée.');
+      },
+      (err) => {
+        const status = err.code === err.PERMISSION_DENIED ? 'denied' : 'error';
+        updateOnboardingData({
+          basicInfo: { ...onboardingData.basicInfo, locationStatus: status },
+        });
+        toast.error(
+          status === 'denied'
+            ? 'Permission refusée — vous pouvez quand même utiliser MedRAG via votre département.'
+            : "Impossible d'obtenir votre position."
+        );
+      },
+      { timeout: 10000, maximumAge: 0, enableHighAccuracy: false }
+    );
+  };
 
   const handleFinish = async () => {
     setIsSaving(true);
@@ -210,6 +251,67 @@ export default function OnboardingPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* ── Géolocalisation précise (optionnelle) ── */}
+                <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <Label className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        Position précise (optionnel)
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Pour vous proposer les établissements de santé les plus proches.
+                        Vous pouvez refuser — nous utiliserons votre département.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant={
+                        onboardingData.basicInfo.locationStatus === 'granted'
+                          ? 'secondary'
+                          : 'outline'
+                      }
+                      size="sm"
+                      onClick={handleUseLocation}
+                      disabled={onboardingData.basicInfo.locationStatus === 'requesting'}
+                      className="gap-2 shrink-0"
+                    >
+                      {onboardingData.basicInfo.locationStatus === 'requesting' ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Localisation…
+                        </>
+                      ) : onboardingData.basicInfo.locationStatus === 'granted' ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          Position OK
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="w-4 h-4" />
+                          Utiliser ma position
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {onboardingData.basicInfo.locationStatus === 'granted' &&
+                    onboardingData.basicInfo.lat != null &&
+                    onboardingData.basicInfo.lon != null && (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400 pt-1">
+                        Coordonnées enregistrées ({onboardingData.basicInfo.lat.toFixed(3)},{' '}
+                        {onboardingData.basicInfo.lon.toFixed(3)}).
+                      </p>
+                    )}
+                  {(onboardingData.basicInfo.locationStatus === 'denied' ||
+                    onboardingData.basicInfo.locationStatus === 'error') && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400 pt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Position non disponible — le département sera utilisé pour la recherche
+                      d&apos;établissements.
+                    </p>
+                  )}
                 </div>
               </>
             )}

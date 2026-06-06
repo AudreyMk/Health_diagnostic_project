@@ -57,7 +57,7 @@ async function apiFetch<T>(
 
 /**
  * Réponse POST /auth/login — le backend retourne un objet PLAT (pas de "user" imbriqué).
- * Champs : token, user_id, name, age, sex, dept, onboarding_done
+ * Champs : token, user_id, name, age, sex, dept, lat, lon, onboarding_done
  */
 export interface ApiAuthResponse {
   token: string;
@@ -66,6 +66,8 @@ export interface ApiAuthResponse {
   age: number | null;
   sex: 'M' | 'F' | null;
   dept: string | null;
+  lat: number | null;
+  lon: number | null;
   onboarding_done: boolean;
 }
 
@@ -79,6 +81,8 @@ export interface ApiUser {
   age: number | null;
   sex: 'M' | 'F' | null;
   dept: string | null;
+  lat: number | null;
+  lon: number | null;
   onboarding_done: boolean;
 }
 
@@ -160,7 +164,7 @@ export async function apiGetMe(): Promise<ApiUser> {
 }
 
 export async function apiUpdateAuthProfile(
-  data: Partial<{ dept: string; age: number; sex: string }>
+  data: Partial<{ dept: string; age: number; sex: string; lat: number; lon: number }>
 ): Promise<{ message: string }> {
   return apiFetch<{ message: string }>('/auth/profile', {
     method: 'PUT',

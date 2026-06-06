@@ -100,17 +100,24 @@ def login(req: LoginReq):
 # ── Endpoints Conversations ───────────────────────────────────────────────────
 
 class UpdateDeptReq(BaseModel):
-    """Schéma étendu — dept reste obligatoire pour la géolocalisation existante,
-    age et sex sont optionnels (ajoutés pour l'onboarding)."""
-    dept: str | None = None
-    age:  int | None = None
-    sex:  str | None = None
+    """Schéma étendu — tous les champs sont optionnels (PUT partiel).
+    Permet de mettre à jour dept, age, sex, et coordonnées GPS (lat/lon)."""
+    dept: str   | None = None
+    age:  int   | None = None
+    sex:  str   | None = None
+    lat:  float | None = None
+    lon:  float | None = None
 
 @router.put("/auth/profile")
 def update_profile(req: UpdateDeptReq, user: dict = Depends(get_user)):
-    """Met à jour dept, age et/ou sex de l'utilisateur."""
-    auth.update_user_profile(user["user_id"], dept=req.dept, age=req.age, sex=req.sex)
-    return {"dept": req.dept, "age": req.age, "sex": req.sex}
+    """Met à jour dept, age, sex, lat et/ou lon de l'utilisateur."""
+    auth.update_user_profile(
+        user["user_id"],
+        dept=req.dept, age=req.age, sex=req.sex,
+        lat=req.lat,   lon=req.lon,
+    )
+    return {"dept": req.dept, "age": req.age, "sex": req.sex,
+            "lat": req.lat, "lon": req.lon}
 
 @router.get("/auth/me")
 def me(user: dict = Depends(get_user)):
