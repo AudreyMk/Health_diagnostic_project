@@ -6,13 +6,13 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Proxy /api/* → FastAPI localhost:8000
+  // Proxy /api/* → FastAPI localhost:8000 (le backend expose ses routes sous /api)
   // Évite les problèmes CORS en développement
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8010/:path*',
+        destination: 'http://localhost:8000/api/:path*',
       },
     ];
   },

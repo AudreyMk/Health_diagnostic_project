@@ -29,6 +29,8 @@ def init_tables():
                 age             INTEGER,
                 sex             CHAR(1),
                 dept            TEXT,
+                lat             REAL,
+                lon             REAL,
                 onboarding_done BOOLEAN DEFAULT FALSE,
                 created_at      TIMESTAMPTZ DEFAULT NOW()
             )
@@ -38,6 +40,8 @@ def init_tables():
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_done BOOLEAN DEFAULT FALSE"
         )
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lat REAL")
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS lon REAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 token      TEXT PRIMARY KEY,
@@ -81,6 +85,8 @@ def login(email: str, password: str):
         "age":             user["age"],
         "sex":             user["sex"],
         "dept":            user.get("dept"),
+        "lat":             user.get("lat"),
+        "lon":             user.get("lon"),
         "onboarding_done": bool(user.get("onboarding_done", False)),
     }, None
 
@@ -91,8 +97,8 @@ def update_dept(user_id: str, dept: str):
         conn.execute("UPDATE users SET dept = %s WHERE id = %s", (dept, user_id))
 
 
-def update_user_profile(user_id: str, dept=None, age=None, sex=None):
-    """Met à jour les champs de base du profil (dept, age, sex) — champs optionnels."""
+def update_user_profile(user_id: str, dept=None, age=None, sex=None, lat=None, lon=None):
+    """Met à jour les champs de base du profil (dept, age, sex, lat, lon) — champs optionnels."""
     fields, values = [], []
     if dept is not None:
         fields.append("dept = %s"); values.append(dept)
@@ -100,6 +106,10 @@ def update_user_profile(user_id: str, dept=None, age=None, sex=None):
         fields.append("age = %s");  values.append(age)
     if sex is not None:
         fields.append("sex = %s");  values.append(sex)
+    if lat is not None:
+        fields.append("lat = %s");  values.append(lat)
+    if lon is not None:
+        fields.append("lon = %s");  values.append(lon)
     if not fields:
         return
     values.append(user_id)
@@ -119,7 +129,7 @@ def get_user(token: str) -> dict | None:
     """Retourne le profil utilisateur associe au token, ou None si invalide."""
     with _conn() as conn:
         row = conn.execute("""
-            SELECT u.id AS user_id, u.name, u.age, u.sex, u.dept, u.onboarding_done
+            SELECT u.id AS user_id, u.name, u.age, u.sex, u.dept, u.lat, u.lon, u.onboarding_done
             FROM sessions s
             JOIN users u ON u.id = s.user_id
             WHERE s.token = %s

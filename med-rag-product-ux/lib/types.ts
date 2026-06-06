@@ -15,6 +15,8 @@ export interface PatientProfile {
   age: number;
   sex: 'male' | 'female' | 'other';
   department: string;  // correspond à users.dept
+  lat: number | null;  // coordonnée GPS (géoloc navigateur), null si non partagée
+  lon: number | null;
   medicalHistory: string[];       // patient_profiles.antecedents
   chronicConditions: string[];    // dérivé de patient_profiles
   currentTreatments: string[];    // patient_profiles.treatments[].name
@@ -88,6 +90,9 @@ export interface OnboardingData {
     age: string;
     sex: string;
     department: string;
+    lat: number | null;       // GPS via navigator.geolocation (étape 1)
+    lon: number | null;
+    locationStatus: 'idle' | 'requesting' | 'granted' | 'denied' | 'error';
   };
   medicalContext: {
     medicalHistory: string;
@@ -134,6 +139,8 @@ export function mapApiUserToProfile(apiUser: ApiUser | ApiAuthResponse): Patient
     age: apiUser.age || 0,
     sex: apiUser.sex === 'M' ? 'male' : apiUser.sex === 'F' ? 'female' : 'other',
     department: apiUser.dept || '',
+    lat: apiUser.lat ?? null,
+    lon: apiUser.lon ?? null,
     medicalHistory: [],
     chronicConditions: [],
     currentTreatments: [],

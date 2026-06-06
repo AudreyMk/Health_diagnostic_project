@@ -21,13 +21,14 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { apiGetCenters, type ApiCenter } from '@/lib/api';
+import { haversineKm, formatDistance } from '@/lib/geo';
 import type { OrientationType, SymptomSummary } from '@/lib/types';
 
 // ── Chargement dynamique de la carte (Leaflet incompatible avec SSR) ──────────
 const HealthMap = dynamic(() => import('./health-map'), {
   ssr: false,
   loading: () => (
-    <div className="h-[280px] bg-muted/30 rounded-xl flex items-center justify-center">
+    <div className="h-[300px] bg-muted/30 rounded-xl flex items-center justify-center">
       <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
     </div>
   ),
@@ -163,8 +164,12 @@ export default function OrientationPanel({
   const config = orientationConfig[orientation];
   const { currentUser } = useAppStore();
   const dept = currentUser?.department?.split(' - ')[0]; // "75 - Paris" → "75"
+  const profileLat = currentUser?.lat ?? null;
+  const profileLon = currentUser?.lon ?? null;
 
   // ── États GPS + centres ─────────────────────────────────────────────────────
+  // userPos = position GPS LIVE (au moment de l'affichage de la carte)
+  // profileLat/Lon = position enregistrée à l'onboarding (peut être plus ancienne)
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [centers, setCenters] = useState<ApiCenter[] | null>(null); // null = chargement
@@ -173,7 +178,8 @@ export default function OrientationPanel({
   useEffect(() => {
     if (!config.showMap) return;
 
-    // 1. Récupère la position GPS de l'utilisateur
+    // 1. Récupère la position GPS live (priorité pour centrer la carte).
+    //    Si refus / indisponible → on retombera sur le profil ou le dept.
     if ('geolocation' in navigator) {
       setGpsLoading(true);
       navigator.geolocation.getCurrentPosition(
@@ -192,23 +198,39 @@ export default function OrientationPanel({
       setGpsError('Géolocalisation non supportée par le navigateur');
     }
 
-    // 2. Charge les établissements via l'API (par département)
-    if (dept) {
-      apiGetCenters(dept)
-        .then(({ centers: data }) => setCenters(data))
-        .catch(() => setCenters([]));
-    } else {
-      setCenters([]);
-    }
+    // 2. Charge les établissements via l'API.
+    //    Priorité 1 : coords du profil patient (onboarding) → recherche $near.
+    //    Priorité 2 : dept du profil → recherche par département.
+    //    Le backend gère les deux cas, on lui passe simplement ce qu'on a.
+    const params: Parameters<typeof apiGetCenters>[0] =
+      profileLat != null && profileLon != null
+        ? { lat: profileLat, lon: profileLon }
+        : dept
+        ? { dept }
+        : {};
+
+    apiGetCenters(params)
+      .then(({ centers: data }) => setCenters(data))
+      .catch(() => setCenters([]));
   // Dépendance sur orientation pour recharger si l'orientation change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orientation, dept]);
+  }, [orientation, dept, profileLat, profileLon]);
 
-  // La carte est affichée si :
-  // - L'orientation le permet (showMap: true)
-  // - On a la position GPS
-  // - On a des centres
-  const showMap = config.showMap && userPos !== null && centers !== null && centers.length > 0;
+  // Position effective pour centrer la carte :
+  //   GPS live > profil onboarding > (sinon pas de carte)
+  const mapCenter = userPos
+    ? userPos
+    : profileLat != null && profileLon != null
+    ? { lat: profileLat, lng: profileLon }
+    : null;
+
+  // La carte est affichée si l'orientation le permet, qu'on a un point central
+  // et au moins un établissement (avec ses propres coords) à montrer.
+  const showMap =
+    config.showMap &&
+    mapCenter !== null &&
+    centers !== null &&
+    centers.some((c) => c.lat != null && c.lon != null);
 
   return (
     <div className="space-y-4">
@@ -313,17 +335,17 @@ export default function OrientationPanel({
           </CardHeader>
           <CardContent className="space-y-3 pb-3">
 
-            {/* Carte Leaflet — uniquement si GPS disponible et centres trouvés */}
-            {showMap && (
+            {/* Carte Leaflet — affichée si on a un centre et au moins un établissement géolocalisé */}
+            {showMap && mapCenter && (
               <HealthMap
-                userLat={userPos.lat}
-                userLng={userPos.lng}
+                userLat={mapCenter.lat}
+                userLng={mapCenter.lng}
                 centers={centers!}
               />
             )}
 
-            {/* Message si GPS non disponible */}
-            {gpsError && !userPos && (
+            {/* Message si GPS non disponible et pas de coords profil */}
+            {gpsError && !userPos && profileLat == null && (
               <div className="flex items-start gap-2 p-3 bg-muted/40 rounded-lg text-sm text-muted-foreground">
                 <Navigation className="w-4 h-4 shrink-0 mt-0.5" />
                 <div>
@@ -333,18 +355,18 @@ export default function OrientationPanel({
               </div>
             )}
 
-            {/* Message si chargement GPS en cours */}
-            {gpsLoading && !userPos && !gpsError && (
+            {/* Message si chargement GPS en cours et qu'on n'a aucun fallback */}
+            {gpsLoading && !userPos && profileLat == null && !gpsError && (
               <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                 Récupération de votre position…
               </div>
             )}
 
-            {/* Message si département non renseigné */}
-            {!dept && (
+            {/* Message si département non renseigné et pas de coords */}
+            {!dept && profileLat == null && (
               <p className="text-sm text-muted-foreground text-center py-2">
-                Renseignez votre département dans votre profil pour voir les établissements proches.
+                Renseignez votre département ou activez la géolocalisation dans votre profil.
               </p>
             )}
 
@@ -358,35 +380,56 @@ export default function OrientationPanel({
             {/* Liste des centres (toujours visible quand dispo) */}
             {centers !== null && centers.length > 0 && (
               <div className="space-y-2 mt-1">
-                {centers.slice(0, 6).map((center, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2.5 p-2.5 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
-                  >
-                    <MapPin className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium leading-snug truncate">
-                        {center.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {center.category_label}
-                      </p>
-                      {center.address && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {center.address}
+                {centers.slice(0, 6).map((center, i) => {
+                  // Distance calculée si on a un point d'origine (GPS live ou profil)
+                  // et si le centre lui-même est géolocalisé.
+                  const origin =
+                    userPos ?? (profileLat != null && profileLon != null
+                      ? { lat: profileLat, lng: profileLon }
+                      : null);
+                  const distKm =
+                    origin && center.lat != null && center.lon != null
+                      ? haversineKm(origin.lat, origin.lng, center.lat, center.lon)
+                      : null;
+
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2.5 p-2.5 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium leading-snug truncate flex-1">
+                            {center.name}
+                          </p>
+                          {distKm !== null && (
+                            <span className="text-[10px] font-semibold tabular-nums shrink-0 px-1.5 py-0.5 bg-primary/10 text-primary rounded-md">
+                              {formatDistance(distKm)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {center.category_label}
                         </p>
-                      )}
-                      {center.phone && (
-                        <a
-                          href={`tel:${center.phone.replace(/\s/g, '')}`}
-                          className="text-xs text-primary hover:underline mt-0.5 inline-block"
-                        >
-                          📞 {center.phone}
-                        </a>
-                      )}
+                        {center.address && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {center.address}
+                          </p>
+                        )}
+                        {center.phone && (
+                          <a
+                            href={`tel:${center.phone.replace(/\s/g, '')}`}
+                            className="text-xs text-primary hover:underline mt-0.5 inline-flex items-center gap-1"
+                          >
+                            <Phone className="w-3 h-3" />
+                            {center.phone}
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

@@ -5,7 +5,7 @@ Endpoints : /auth/register  /auth/login  /conversations  /conversations/{id}/cha
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
@@ -36,6 +36,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MedRAG v2", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Toutes les routes sont montées sous /api (évite les rewrites côté frontend)
+router = APIRouter(prefix="/api")
 
 # ── Schémas Pydantic ──────────────────────────────────────────────────────────
 
@@ -80,14 +83,14 @@ def get_user(authorization: str = Header(None)) -> dict:
 
 # ── Endpoints Auth ────────────────────────────────────────────────────────────
 
-@app.post("/auth/register", status_code=201)
+@router.post("/auth/register", status_code=201)
 def register(req: RegisterReq):
     uid, err = auth.register(req.name, req.email, req.password, req.age, req.sex)
     if err:
         raise HTTPException(400, err)
     return {"message": "Compte créé avec succès.", "user_id": uid}
 
-@app.post("/auth/login")
+@router.post("/auth/login")
 def login(req: LoginReq):
     data, err = auth.login(req.email, req.password)
     if err:
@@ -97,32 +100,39 @@ def login(req: LoginReq):
 # ── Endpoints Conversations ───────────────────────────────────────────────────
 
 class UpdateDeptReq(BaseModel):
-    """Schéma étendu — dept reste obligatoire pour la géolocalisation existante,
-    age et sex sont optionnels (ajoutés pour l'onboarding)."""
-    dept: str | None = None
-    age:  int | None = None
-    sex:  str | None = None
+    """Schéma étendu — tous les champs sont optionnels (PUT partiel).
+    Permet de mettre à jour dept, age, sex, et coordonnées GPS (lat/lon)."""
+    dept: str   | None = None
+    age:  int   | None = None
+    sex:  str   | None = None
+    lat:  float | None = None
+    lon:  float | None = None
 
-@app.put("/auth/profile")
+@router.put("/auth/profile")
 def update_profile(req: UpdateDeptReq, user: dict = Depends(get_user)):
-    """Met à jour dept, age et/ou sex de l'utilisateur."""
-    auth.update_user_profile(user["user_id"], dept=req.dept, age=req.age, sex=req.sex)
-    return {"dept": req.dept, "age": req.age, "sex": req.sex}
+    """Met à jour dept, age, sex, lat et/ou lon de l'utilisateur."""
+    auth.update_user_profile(
+        user["user_id"],
+        dept=req.dept, age=req.age, sex=req.sex,
+        lat=req.lat,   lon=req.lon,
+    )
+    return {"dept": req.dept, "age": req.age, "sex": req.sex,
+            "lat": req.lat, "lon": req.lon}
 
-@app.get("/auth/me")
+@router.get("/auth/me")
 def me(user: dict = Depends(get_user)):
     """Verifie si le token est toujours valide et retourne le profil (onboarding_done inclus)."""
     return user
 
 # ── Profil patient médical ────────────────────────────────────────────────────
 
-@app.get("/patient/profile")
+@router.get("/patient/profile")
 def get_patient_profile(user: dict = Depends(get_user)):
     """Retourne le profil médical (antécédents, traitements, allergies).
     Retourne null si absent — ce n'est pas une erreur (cas skip onboarding)."""
     return {"profile": patient_profile.get_profile(user["user_id"])}
 
-@app.post("/patient/profile", status_code=201)
+@router.post("/patient/profile", status_code=201)
 def save_patient_profile(req: PatientProfileReq, user: dict = Depends(get_user)):
     """Crée ou met à jour le profil médical et marque l'onboarding comme terminé.
     Un body vide {} est valide (cas skip — profil vide mais onboarding_done=True)."""
@@ -130,22 +140,22 @@ def save_patient_profile(req: PatientProfileReq, user: dict = Depends(get_user))
     auth.update_onboarding(user["user_id"])
     return {"message": "Profil enregistré.", "onboarding_done": True}
 
-@app.post("/conversations", status_code=201)
+@router.post("/conversations", status_code=201)
 def new_conversation(user: dict = Depends(get_user)):
     conv_id = conversation.create(user["user_id"])
     return {"conversation_id": conv_id}
 
-@app.get("/conversations")
+@router.get("/conversations")
 def list_conversations(user: dict = Depends(get_user)):
     return {"conversations": conversation.list_for_user(user["user_id"])}
 
-@app.get("/conversations/{conv_id}/messages")
+@router.get("/conversations/{conv_id}/messages")
 def get_messages(conv_id: str, user: dict = Depends(get_user)):
     """Retourne les messages d'une conversation existante."""
     _check_ownership(conv_id, user)
     return {"messages": conversation.get_messages(conv_id)}
 
-@app.post("/conversations/{conv_id}/chat")
+@router.post("/conversations/{conv_id}/chat")
 def chat(conv_id: str, req: ChatReq, user: dict = Depends(get_user)):
     _check_ownership(conv_id, user)
     # 1. Charger l'historique depuis MongoDB
@@ -165,6 +175,8 @@ def chat(conv_id: str, req: ChatReq, user: dict = Depends(get_user)):
         sex=user.get("sex"),
         dept=user.get("dept"),
         profile=profile,
+        lat=user.get("lat"),
+        lon=user.get("lon"),
     )
 
 
@@ -186,13 +198,13 @@ def chat(conv_id: str, req: ChatReq, user: dict = Depends(get_user)):
 
     return {"response": response_text, "triage": triage, "report": report}
 
-@app.get("/conversations/{conv_id}/report")
+@router.get("/conversations/{conv_id}/report")
 def get_report(conv_id: str, user: dict = Depends(get_user)):
     """Retourne la fiche pré-consultation persistée pour une conversation."""
     _check_ownership(conv_id, user)
     return {"report": conversation.get_report(conv_id)}
 
-@app.get("/conversations/{conv_id}/triage")
+@router.get("/conversations/{conv_id}/triage")
 def get_triage(conv_id: str, user: dict = Depends(get_user)):
     """Retourne le triage persisté pour une conversation."""
     _check_ownership(conv_id, user)
@@ -200,17 +212,74 @@ def get_triage(conv_id: str, user: dict = Depends(get_user)):
 
 # ── Établissements de santé ───────────────────────────────────────────────────
 
-@app.get("/centers")
-def get_centers(dept: str, user: dict = Depends(get_user)):
-    """Retourne les établissements FINESS pour un département donné."""
-    centers = state["mongo"].search_by_dept(dept, limit=8)
-    return {"centers": centers}
+def _flatten_center(doc: dict) -> dict:
+    """Aplatit un doc FINESS Mongo : extrait location.coordinates -> lat/lon top-level.
+    Permet au frontend d'afficher les markers sans géocodage externe (Nominatim)."""
+    coords = (doc.get("location") or {}).get("coordinates") or [None, None]
+    lon, lat = (coords + [None, None])[:2]
+    return {
+        "name":           doc.get("name"),
+        "address":        doc.get("address"),
+        "category_label": doc.get("category_label"),
+        "category_code":  doc.get("category_code"),
+        "phone":          doc.get("phone"),
+        "dept":           doc.get("dept"),
+        "lat":            lat,
+        "lon":            lon,
+    }
+
+
+@router.get("/centers")
+def get_centers(
+    dept:   str   | None = None,
+    lat:    float | None = None,
+    lon:    float | None = None,
+    radius: int   = 50_000,
+    limit:  int   = 8,
+    user:   dict  = Depends(get_user),
+):
+    """Retourne des établissements FINESS, avec lat/lon à plat.
+
+    - Si lat & lon fournis → recherche géolocalisée ($near) dans le rayon donné (m).
+    - Sinon, si dept fourni → recherche par département.
+    - Fallback : profil utilisateur (lat/lon prioritaire, sinon dept).
+    """
+    mongo = state["mongo"]
+
+    # 1. Coords explicites dans la requête
+    if lat is not None and lon is not None:
+        centers = mongo.search_nearby(longitude=lon, latitude=lat,
+                                      max_distance=radius, limit=limit)
+        if centers:
+            return {"centers": [_flatten_center(c) for c in centers], "source": "nearby"}
+
+    # 2. Coords du profil utilisateur (saisies à l'onboarding)
+    u_lat, u_lon = user.get("lat"), user.get("lon")
+    if u_lat is not None and u_lon is not None:
+        centers = mongo.search_nearby(longitude=u_lon, latitude=u_lat,
+                                      max_distance=radius, limit=limit)
+        if centers:
+            return {"centers": [_flatten_center(c) for c in centers], "source": "nearby"}
+
+    # 3. Fallback département
+    target_dept = dept or user.get("dept")
+    if target_dept:
+        return {
+            "centers": [_flatten_center(c) for c in mongo.search_by_dept(target_dept, limit=limit)],
+            "source": "dept",
+        }
+
+    return {"centers": [], "source": "none"}
 
 # ── Santé du système ──────────────────────────────────────────────────────────
 
-@app.get("/health")
+@router.get("/health")
 def health():
     return {"status": "ok", "stats": state["pg"].get_stats()}
+
+
+# Enregistre toutes les routes du router (préfixées /api) sur l'app
+app.include_router(router)
 
 
 if __name__ == "__main__":
