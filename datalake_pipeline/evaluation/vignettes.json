@@ -1,0 +1,209 @@
+{
+  "_commentaire": "Vignettes cliniques standardisées — adaptées de la méthodologie Semigran et al. (BMJ 2015) et des niveaux de tri FRENCH (SFMU). Chaque vignette = un faux patient + l'orientation attendue. Voir README.md.",
+  "_version": "1.0 — 2026-06-10",
+  "vignettes": [
+    {
+      "id": "v01",
+      "titre": "Suspicion infarctus (SCA)",
+      "profil": { "age": 58, "sex": "M", "dept": "75", "antecedents": [], "treatments": [] },
+      "description": "Bonjour, j'ai une douleur dans la poitrine depuis environ 1 heure. C'est comme un serrement très fort, ça va jusqu'à mon bras gauche. Je transpire beaucoup et j'ai un peu envie de vomir. Je suis fumeur.",
+      "reponses": [
+        { "si_question_contient": ["intensité", "/10", "échelle"], "reponse": "C'est très fort, je dirais 8 sur 10." },
+        { "si_question_contient": ["première fois", "déjà eu"], "reponse": "Non, jamais eu ça avant." },
+        { "si_question_contient": ["effort", "repos"], "reponse": "C'est arrivé alors que j'étais assis, au repos." }
+      ],
+      "reponse_par_defaut": "Non, rien d'autre.",
+      "orientation_attendue": "samu",
+      "acceptables": []
+    },
+    {
+      "id": "v02",
+      "titre": "Céphalée en coup de tonnerre",
+      "profil": { "age": 35, "sex": "F", "dept": "75", "antecedents": [], "treatments": [] },
+      "description": "J'ai eu il y a 30 minutes un mal de tête d'une violence que je n'ai jamais connue, c'est arrivé d'un seul coup, comme un coup de tonnerre. C'est le pire mal de tête de ma vie.",
+      "reponses": [
+        { "si_question_contient": ["intensité", "/10"], "reponse": "10 sur 10, insupportable." },
+        { "si_question_contient": ["nuque", "raideur", "fièvre"], "reponse": "Pas de fièvre, mais j'ai du mal à bouger la tête." },
+        { "si_question_contient": ["vomis", "nausée"], "reponse": "Oui j'ai vomi une fois." }
+      ],
+      "reponse_par_defaut": "Je ne sais pas.",
+      "orientation_attendue": "samu",
+      "acceptables": []
+    },
+    {
+      "id": "v03",
+      "titre": "Suspicion AVC",
+      "profil": { "age": 70, "sex": "M", "dept": "69", "antecedents": ["hypertension artérielle"], "treatments": [{ "name": "amlodipine", "type": "chronique" }] },
+      "description": "Depuis une demi-heure mon bras droit est tout faible, je n'arrive pas à bien tenir les objets, et ma femme dit que je parle bizarrement, que mes mots sont déformés.",
+      "reponses": [
+        { "si_question_contient": ["visage", "bouche", "sourire"], "reponse": "Ma femme dit que ma bouche est un peu tordue d'un côté." },
+        { "si_question_contient": ["quand", "heure", "depuis"], "reponse": "Ça a commencé il y a 30 minutes environ." }
+      ],
+      "reponse_par_defaut": "Je ne sais pas trop.",
+      "orientation_attendue": "samu",
+      "acceptables": []
+    },
+    {
+      "id": "v04",
+      "titre": "Suspicion appendicite",
+      "profil": { "age": 25, "sex": "M", "dept": "33", "antecedents": [], "treatments": [] },
+      "description": "J'ai mal au ventre depuis hier, au début c'était autour du nombril et maintenant la douleur s'est déplacée en bas à droite. J'ai de la fièvre à 38.5 et j'ai vomi deux fois ce matin.",
+      "reponses": [
+        { "si_question_contient": ["intensité", "/10"], "reponse": "7 sur 10, et ça empire quand je marche." },
+        { "si_question_contient": ["selles", "transit", "gaz"], "reponse": "Je n'ai pas été aux toilettes depuis hier." },
+        { "si_question_contient": ["appuie", "palp", "dur"], "reponse": "Oui ça fait très mal quand j'appuie en bas à droite." }
+      ],
+      "reponse_par_defaut": "Non.",
+      "orientation_attendue": "urgent",
+      "acceptables": ["samu"]
+    },
+    {
+      "id": "v05",
+      "titre": "Sepsis personne âgée",
+      "profil": { "age": 82, "sex": "F", "dept": "13", "antecedents": [], "treatments": [] },
+      "description": "C'est pour ma mère de 82 ans : elle a 39.5 de fièvre depuis ce matin, elle grelotte, et depuis une heure elle est confuse, elle ne sait plus trop où elle est. Elle est très fatiguée.",
+      "reponses": [
+        { "si_question_contient": ["urin", "brûl"], "reponse": "Elle s'est plainte de brûlures en urinant hier." },
+        { "si_question_contient": ["tache", "bouton", "peau"], "reponse": "Non, pas de taches sur la peau." }
+      ],
+      "reponse_par_defaut": "Je ne sais pas.",
+      "orientation_attendue": "samu",
+      "acceptables": ["urgent"]
+    },
+    {
+      "id": "v06",
+      "titre": "TERRAIN — Chute sous anticoagulant",
+      "profil": { "age": 72, "sex": "M", "dept": "75", "antecedents": ["fibrillation auriculaire"], "treatments": [{ "name": "Xarelto", "type": "chronique" }] },
+      "description": "Je suis tombé dans les escaliers il y a deux heures et je me suis cogné la tête. J'ai une bosse mais ça va, juste un peu mal au crâne. Est-ce que je dois m'inquiéter ?",
+      "reponses": [
+        { "si_question_contient": ["connaissance", "évanoui"], "reponse": "Non je ne me suis pas évanoui." },
+        { "si_question_contient": ["vomis", "nausée"], "reponse": "Non, pas de vomissements." },
+        { "si_question_contient": ["traitement", "médicament", "anticoag"], "reponse": "Je prends du Xarelto tous les jours pour mon cœur." }
+      ],
+      "reponse_par_defaut": "Non, rien d'autre.",
+      "orientation_attendue": "urgent",
+      "acceptables": ["samu"]
+    },
+    {
+      "id": "v07",
+      "titre": "TERRAIN — Asthme, traitement de crise inefficace",
+      "profil": { "age": 30, "sex": "F", "dept": "59", "antecedents": ["asthme"], "treatments": [{ "name": "Ventoline", "type": "chronique" }] },
+      "description": "Je suis asthmatique et depuis ce matin je suis de plus en plus essoufflée. J'ai pris ma Ventoline trois fois mais ça ne fait presque rien, d'habitude ça me soulage tout de suite.",
+      "reponses": [
+        { "si_question_contient": ["parler", "phrase"], "reponse": "J'arrive à parler mais je dois m'arrêter au milieu des phrases." },
+        { "si_question_contient": ["lèvres", "bleu"], "reponse": "Non, pas de lèvres bleues." }
+      ],
+      "reponse_par_defaut": "Je ne sais pas.",
+      "orientation_attendue": "urgent",
+      "acceptables": ["samu"]
+    },
+    {
+      "id": "v08",
+      "titre": "TERRAIN — Douleur pelvienne, femme en âge de procréer",
+      "profil": { "age": 28, "sex": "F", "dept": "31", "antecedents": [], "treatments": [] },
+      "description": "J'ai une douleur très forte en bas du ventre, à droite, qui est arrivée brutalement il y a deux heures. Je me sens un peu faible.",
+      "reponses": [
+        { "si_question_contient": ["enceinte", "grossesse", "règles"], "reponse": "Mes règles ont deux semaines de retard, c'est possible que je sois enceinte." },
+        { "si_question_contient": ["saign"], "reponse": "J'ai des petites pertes de sang depuis ce matin." },
+        { "si_question_contient": ["intensité", "/10"], "reponse": "8 sur 10." }
+      ],
+      "reponse_par_defaut": "Non.",
+      "orientation_attendue": "urgent",
+      "acceptables": ["samu"]
+    },
+    {
+      "id": "v09",
+      "titre": "TERRAIN — Antécédent cardiaque + essoufflement",
+      "profil": { "age": 65, "sex": "M", "dept": "44", "antecedents": ["infarctus du myocarde en 2022", "pose de stent"], "treatments": [{ "name": "Kardégic", "type": "chronique" }, { "name": "atorvastatine", "type": "chronique" }] },
+      "description": "Depuis deux jours je suis fatigué comme jamais et je m'essouffle pour des choses simples, monter un étage par exemple. Pas vraiment de douleur, juste cette fatigue et l'essoufflement.",
+      "reponses": [
+        { "si_question_contient": ["chevilles", "jambes", "gonfl"], "reponse": "Maintenant que vous le dites, mes chevilles sont un peu gonflées le soir." },
+        { "si_question_contient": ["nuit", "allongé", "oreiller"], "reponse": "Je dors moins bien, je me réveille essoufflé parfois." }
+      ],
+      "reponse_par_defaut": "Non, pas de douleur.",
+      "orientation_attendue": "urgent",
+      "acceptables": ["samu"]
+    },
+    {
+      "id": "v10",
+      "titre": "TERRAIN — Plaie du pied chez diabétique",
+      "profil": { "age": 60, "sex": "M", "dept": "75", "antecedents": ["diabète de type 2"], "treatments": [{ "name": "metformine", "type": "chronique" }] },
+      "description": "J'ai une petite plaie sous le pied depuis une semaine qui ne guérit pas. Ce n'est pas très douloureux mais la peau autour devient rouge et un peu chaude.",
+      "reponses": [
+        { "si_question_contient": ["fièvre", "température"], "reponse": "Non, pas de fièvre." },
+        { "si_question_contient": ["écoulement", "pus", "odeur"], "reponse": "Il y a un petit écoulement depuis hier." },
+        { "si_question_contient": ["diab", "glycémie", "sucre"], "reponse": "Oui je suis diabétique, ma dernière glycémie était un peu haute." }
+      ],
+      "reponse_par_defaut": "Non.",
+      "orientation_attendue": "medecin",
+      "acceptables": ["urgent"]
+    },
+    {
+      "id": "v11",
+      "titre": "Infection respiratoire fébrile simple",
+      "profil": { "age": 45, "sex": "F", "dept": "67", "antecedents": [], "treatments": [] },
+      "description": "Je tousse depuis 4 jours avec de la fièvre autour de 38.2. Je suis fatiguée mais je respire normalement. La toux est grasse depuis hier.",
+      "reponses": [
+        { "si_question_contient": ["essouffl", "respir", "gêne"], "reponse": "Non, je respire bien, juste la toux." },
+        { "si_question_contient": ["douleur", "poitrine", "thorax"], "reponse": "Un peu mal aux côtes quand je tousse fort, c'est tout." }
+      ],
+      "reponse_par_defaut": "Non, rien d'autre.",
+      "orientation_attendue": "medecin",
+      "acceptables": ["pharmacien"]
+    },
+    {
+      "id": "v12",
+      "titre": "Lombalgie commune sans red flag",
+      "profil": { "age": 40, "sex": "M", "dept": "35", "antecedents": [], "treatments": [] },
+      "description": "Je me suis bloqué le dos il y a 5 jours en portant un carton. J'ai mal en bas du dos quand je me penche, mais ça va un peu mieux qu'au début.",
+      "reponses": [
+        { "si_question_contient": ["jambe", "irradi", "sciatique"], "reponse": "Non, ça ne descend pas dans la jambe." },
+        { "si_question_contient": ["urin", "selles", "sphincter"], "reponse": "Non, tout est normal de ce côté." },
+        { "si_question_contient": ["fièvre"], "reponse": "Non, pas de fièvre." }
+      ],
+      "reponse_par_defaut": "Non.",
+      "orientation_attendue": "pharmacien",
+      "acceptables": ["domicile", "medecin"]
+    },
+    {
+      "id": "v13",
+      "titre": "Rhinopharyngite banale",
+      "profil": { "age": 30, "sex": "F", "dept": "06", "antecedents": [], "treatments": [] },
+      "description": "J'ai le nez qui coule et la gorge qui gratte depuis 3 jours. Pas de fièvre, juste un rhume je pense, mais c'est gênant pour dormir.",
+      "reponses": [
+        { "si_question_contient": ["fièvre", "température"], "reponse": "Non, 37.2 ce matin." },
+        { "si_question_contient": ["essouffl", "respir"], "reponse": "Non, je respire normalement." }
+      ],
+      "reponse_par_defaut": "Non, rien d'autre.",
+      "orientation_attendue": "pharmacien",
+      "acceptables": ["domicile"]
+    },
+    {
+      "id": "v14",
+      "titre": "Courbatures post-sport",
+      "profil": { "age": 28, "sex": "M", "dept": "75", "antecedents": [], "treatments": [] },
+      "description": "J'ai repris le sport hier après une longue pause et aujourd'hui j'ai des courbatures partout, surtout aux cuisses. C'est normal ou je dois m'inquiéter ?",
+      "reponses": [
+        { "si_question_contient": ["urine", "foncée", "couleur"], "reponse": "Non, mes urines sont normales." },
+        { "si_question_contient": ["gonfl", "rouge"], "reponse": "Non, rien de gonflé." }
+      ],
+      "reponse_par_defaut": "Non, juste les courbatures.",
+      "orientation_attendue": "domicile",
+      "acceptables": ["pharmacien"]
+    },
+    {
+      "id": "v15",
+      "titre": "Règles douloureuses habituelles",
+      "profil": { "age": 22, "sex": "F", "dept": "34", "antecedents": [], "treatments": [] },
+      "description": "J'ai mes règles et comme d'habitude j'ai des crampes dans le bas du ventre. C'est comme tous les mois, ni plus ni moins fort, mais je voulais savoir s'il y a quelque chose de mieux à faire.",
+      "reponses": [
+        { "si_question_contient": ["intensité", "/10"], "reponse": "5 sur 10, comme d'habitude." },
+        { "si_question_contient": ["différent", "inhabituel", "plus fort"], "reponse": "Non, c'est exactement comme tous les mois." },
+        { "si_question_contient": ["fièvre"], "reponse": "Non." }
+      ],
+      "reponse_par_defaut": "Non, c'est comme d'habitude.",
+      "orientation_attendue": "pharmacien",
+      "acceptables": ["domicile"]
+    }
+  ]
+}
