@@ -4,6 +4,7 @@ Endpoints : /auth/register  /auth/login  /conversations  /conversations/{id}/cha
 """
 from contextlib import asynccontextmanager
 
+import anthropic
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -193,19 +194,35 @@ def chat(conv_id: str, req: ChatReq, user: dict = Depends(get_user)):
     profile = patient_profile.get_profile(user["user_id"])
     # Triage déjà émis ? (None au premier tour, sinon mode follow-up)
     prev_triage = conversation.get_triage(conv_id)
-    result = llm_client.chat(
-        messages=history,
-        embed_fn=embed_fn,
-        pg=state["pg"],
-        mongo=state["mongo"],
-        age=user.get("age"),
-        sex=user.get("sex"),
-        dept=user.get("dept"),
-        profile=profile,
-        lat=user.get("lat"),
-        lon=user.get("lon"),
-        prev_triage=prev_triage,
-    )
+    try:
+        result = llm_client.chat(
+            messages=history,
+            embed_fn=embed_fn,
+            pg=state["pg"],
+            mongo=state["mongo"],
+            age=user.get("age"),
+            sex=user.get("sex"),
+            dept=user.get("dept"),
+            profile=profile,
+            lat=user.get("lat"),
+            lon=user.get("lon"),
+            prev_triage=prev_triage,
+        )
+    except anthropic.APIError as e:
+        # Le service LLM est indisponible (crédit épuisé, quota, panne réseau...).
+        # On renvoie une erreur 503 LISIBLE au lieu d'un 500 + stacktrace.
+        detail = str(getattr(e, "message", "") or e).lower()
+        if "credit balance is too low" in detail or "insufficient" in detail:
+            raise HTTPException(
+                503,
+                "Crédit API insuffisant : le service d'analyse médicale est "
+                "momentanément indisponible. Réessayez une fois le crédit rechargé.",
+            )
+        raise HTTPException(
+            503,
+            "Le service d'analyse médicale est momentanément indisponible. "
+            "Veuillez réessayer dans un instant.",
+        )
 
     response_text = result["text"]
     # Règle du cliquet appliquée en code : jamais de rétrogradation d'orientation

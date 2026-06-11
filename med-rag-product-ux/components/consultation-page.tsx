@@ -241,8 +241,12 @@ export default function ConsultationPage({ onNavigate }: ConsultationPageProps) 
       await sendMessage(text);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erreur serveur';
-      if (msg.includes('réseau') || msg.includes('fetch')) {
-        toast.error('Impossible de contacter le serveur.');
+      const low = msg.toLowerCase();
+      if (low.includes('réseau') || low.includes('fetch') || low.includes('failed to fetch')) {
+        toast.error('Impossible de contacter le serveur. Vérifiez votre connexion.');
+      } else if (low.includes('crédit') || low.includes('indisponible')) {
+        // Service LLM indisponible (crédit API épuisé / panne) — message clair et durable
+        toast.error(msg, { duration: 8000, icon: '⚠️' });
       } else {
         toast.error('❌ ' + msg);
       }
