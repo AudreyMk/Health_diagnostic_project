@@ -12,10 +12,11 @@ Deux scénarios joués contre l'API locale :
 Usage :
   .venv/Scripts/python.exe evaluation/test_follow_up.py
 """
+import os
 import sys
 import requests
 
-BASE     = "http://localhost:8010/api"
+BASE     = os.getenv("MEDRAG_API_BASE", "http://localhost:8010/api")
 PASSWORD = "eval_medrag_2026"
 SEVERITE = {"domicile": 0, "pharmacien": 1, "medecin": 2, "urgent": 3, "samu": 4}
 
@@ -102,7 +103,7 @@ def main():
     try:
         requests.get(f"{BASE}/health", timeout=10).raise_for_status()
     except Exception:
-        print("ERREUR : l'API ne répond pas sur le port 8010.")
+        print(f"ERREUR : l'API ne répond pas sur {BASE}.")
         sys.exit(2)
 
     ok_a = scenario_a()

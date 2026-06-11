@@ -64,6 +64,22 @@ Le script sort en erreur (exit code 1) dès qu'un sous-triage est détecté.
 | Date | Version prompts | Score | Sous-triage | Notes |
 |------|----------------|-------|-------------|-------|
 | 2026-06-10 | system_prompt v2.0 + refs 01-03 | **15/15 exacts** | **0** | Baseline. SAMU détecté en 1 tour sur les 3 cas critiques. Cas terrain : 3× escalade samu au lieu d'urgent (prudent, acceptable). Max 4 tours de questions. |
+| 2026-06-10 | + ref 04 (follow-up) + grossesse | **15/15 exacts** | **0** | Après déblocage du suivi. test_follow_up : cliquet + escalade OK. |
+| 2026-06-11 | v2.1 questions atomiques + modalité forcée + confirmation positif critique | **8/8 exacts** (v01-v08) | **0** | Correction incident "mal de gorge → SAMU sur tout oui". test_questioning : mal de gorge sans red flag → pharmacien (était samu). v09-v15 NON joués : crédit API Anthropic épuisé (erreur 400 billing, pas une régression). À rejouer en entier après recharge du crédit. |
+
+## Tests ciblés (en plus du harness)
+
+- `test_follow_up.py` — cliquet (ne descend jamais) + escalade sur nouveau red flag.
+- `test_questioning.py` — anti faux red flag : un patient qui dit "oui" à tout
+  mais sans signe d'alarme réel ne doit PAS être sur-trié. Le harness principal
+  tolère le sur-triage par conception, donc ce cas a besoin de son propre test.
+
+### Incident de référence — 2026-06-11
+Un mal de gorge fébrile a été trié SAMU parce que l'agent avait posé une
+question GROUPÉE (fièvre + respirer + avaler) et accepté un "tout oui" vague.
+Correctif : questions atomiques obligatoires, modalité de réponse forcée
+(un "oui" ne vaut pas une valeur), confirmation explicite d'un positif critique
+avant orientation urgente. Gardé par `test_questioning.py`.
 
 ## Faire évoluer le jeu de vignettes
 

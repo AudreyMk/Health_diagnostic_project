@@ -1,6 +1,8 @@
 <!--
-Version : 1.1
-Date    : 2026-06-10
+Version : 1.2
+Date    : 2026-06-11
+Motif   : v1.2 — ajout de la règle de CONFIRMATION d'un positif critique
+          (post-incident "tout oui" sur question groupée).
 Sources : Signes d'alerte compilés depuis les recommandations HAS, l'échelle
           de tri FRENCH (SFMU) et les fiches red flags NICE CKS
           (cf. SOURCES.md §2, §3, §4).
@@ -37,3 +39,19 @@ Règles d'application :
 - Chez les patients âgés (> 75 ans), diabétiques ou immunodéprimés, les
   tableaux peuvent être atypiques (infarctus sans douleur, infection sans
   fièvre) : abaisse le seuil d'orientation d'un niveau.
+
+RÈGLE DE CONFIRMATION D'UN POSITIF CRITIQUE (obligatoire) :
+- Ne déclenche JAMAIS une orientation urgente/SAMU sur un "oui" issu d'une
+  question groupée ou ambiguë. Avant de fonder l'orientation sur un red flag,
+  RECONFIRME-le isolément et en reformulant concrètement, ex :
+  "Pour être sûr de bien comprendre : avez-vous réellement du mal à avaler
+   votre salive, au point de baver ou de ne plus pouvoir l'avaler ?"
+- La confirmation porte sur UN seul signe à la fois, avec un exemple concret
+  qui rend la réponse non ambiguë.
+- Si le patient confirme clairement → oriente sans plus attendre (la sécurité
+  prime, ne multiplie pas les vérifications).
+- Si le patient infirme ou hésite → ce signe n'est PAS retenu comme red flag ;
+  continue le recueil normalement sur les autres dimensions.
+- Exception détresse : si le patient décrit une détresse vitale évidente
+  (s'étouffe, ne peut plus parler...), n'exige pas de confirmation — oriente
+  immédiatement.

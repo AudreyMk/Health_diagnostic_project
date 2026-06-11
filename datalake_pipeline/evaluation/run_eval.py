@@ -14,12 +14,13 @@ Usage :
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 import requests
 
-BASE      = "http://localhost:8010/api"
+BASE      = os.getenv("MEDRAG_API_BASE", "http://localhost:8010/api")
 PASSWORD  = "eval_medrag_2026"   # mot de passe commun aux comptes de test
 MAX_TOURS = 6                    # tours de conversation max par vignette
 
@@ -111,8 +112,9 @@ def main():
     try:
         requests.get(f"{BASE}/health", timeout=10).raise_for_status()
     except Exception:
-        print("ERREUR : l'API ne répond pas sur le port 8010.")
-        print("Démarrez-la d'abord : uvicorn rag_engine.api:app --port 8010")
+        print(f"ERREUR : l'API ne répond pas sur {BASE}.")
+        print("Démarrez-la d'abord, ou pointez vers une instance existante :")
+        print("  $env:MEDRAG_API_BASE = 'http://localhost:8000/api'")
         sys.exit(2)
 
     fichier = Path(__file__).parent / "vignettes.json"
