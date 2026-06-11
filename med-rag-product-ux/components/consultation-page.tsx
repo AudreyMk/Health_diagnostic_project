@@ -490,17 +490,17 @@ export default function ConsultationPage({ onNavigate }: ConsultationPageProps) 
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder={
                   chatPhase === 'orientation'
-                    ? 'Consultation terminée — orientation générée'
+                    ? 'Une question de suivi ? (l’orientation reste valable)'
                     : 'Décrivez vos symptômes…'
                 }
-                disabled={isTyping || chatPhase === 'orientation'}
+                disabled={isTyping}
                 className="flex-1 text-[15px] h-10"
                 autoFocus
               />
               <Button
                 type="submit"
                 className="h-10 px-4"
-                disabled={!inputValue.trim() || isTyping || chatPhase === 'orientation'}
+                disabled={!inputValue.trim() || isTyping}
               >
                 {isTyping ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

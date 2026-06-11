@@ -1,5 +1,9 @@
 """
 Agent conversationnel MedRAG — triage structuré + fiche pré-consultation.
+
+Les prompts ne sont PAS écrits ici : ils vivent dans le dossier prompts/
+(versionnés, sourcés, traçables — voir prompts/README.md) et sont chargés
+au démarrage via prompt_loader.py.
 """
 import json
 import re
@@ -12,85 +16,17 @@ from .config import (
     TOP_K_PATHOLOGIES, TOP_K_PATIENTS, TOP_K_CLINICAL,
     MIN_SIMILARITY, AGE_RANGE,
 )
+from .prompt_loader import load_system_prompt, load_report_prompt
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-SYSTEM_PROMPT = """Tu es MedRAG, assistant de pré-triage médical français pour tous les patients.
+# Chargés une seule fois au démarrage : le texte reste stable pendant toute
+# la vie du process → le prompt caching Anthropic fonctionne normalement.
+SYSTEM_PROMPT = load_system_prompt()
+REPORT_PROMPT = load_report_prompt() + "\n\nCONVERSATION :\n"
 
-━━ PROCESSUS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-ÉTAPE 1 — RECUEIL (max 3 questions, une par tour)
-Collecte : symptôme principal + localisation corporelle, durée, intensité (/10), fièvre (température ?), signes associés.
-Si le premier message décrit une urgence évidente → passe directement à l'étape 3.
-
-ÉTAPE 2 — ANALYSE
-Dès que tu as assez d'informations → appelle l'outil `chercher_informations_medicales`.
-
-ÉTAPE 3 — RÉPONSE FINALE (structure obligatoire)
-
----
-**Synthèse**
-[1-2 phrases sur ce que tu as compris des symptômes]
-
-**Pathologies possibles** *(base médicale MedRAG)*
-- **[Nom exact]** — [explication accessible en 1 ligne]
-- **[Nom exact]** — [explication accessible en 1 ligne]
-
-**⚠️ Signes d'alarme** *(si détectés)*
-[Liste les signes justifiant une orientation urgente]
-
-**Orientation recommandée**
-[emoji + niveau] — [justification en 1 phrase]
-
-**Structures de santé dans votre secteur**
-[Utilise EXACTEMENT les établissements fournis par l'outil RAG, avec leur nom et numéro de téléphone réels]
-[Si aucun établissement fourni → "Activez la localisation pour voir les établissements proches"]
----
-
-Termine TOUJOURS une réponse de triage final avec ce bloc (ne l'affiche pas, il est traité automatiquement) :
-<TRIAGE>{"orientation":"domicile|pharmacien|medecin|urgent|samu","color":"green|yellow|orange|red","hypotheses":[{"label":"Nom pathologie","conf":0.80}],"summary":"Résumé symptômes en 1 phrase"}</TRIAGE>
-
-━━ RÈGLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Langue : français, chaleureux et professionnel
-- Maximum 3 questions avant le triage
-- URGENCE (douleur thoracique, AVC, difficulté respiratoire, etc.) → orienter SAMU 15 immédiatement
-- Toujours citer les pathologies par leur NOM MÉDICAL avec explication simple
-- Citer les vrais établissements FINESS fournis par l'outil (nom + téléphone)
-- Terminer en rappelant que MedRAG est un outil d'orientation, non un médecin
-- Ne jamais inventer des noms d'établissements"""
-
-# ── Prompt pour la fiche pré-consultation (second appel léger) ────────────────
-
-REPORT_PROMPT = """Tu es MedRAG. Analyse la conversation ci-dessous et extrais les informations structurées.
-
-Réponds UNIQUEMENT avec un bloc JSON valide entre les balises <REPORT> et </REPORT>.
-Ne génère rien d'autre. Pas de texte avant ni après.
-
-Structure JSON exacte à respecter :
-{
-  "main_symptom":  "symptôme principal en 1 phrase courte",
-  "duration":      "durée exprimée simplement (ex: 3 jours, depuis ce matin) ou null",
-  "intensity":     "chiffre entier /10 si mentionné ou null",
-  "associated":    ["symptôme associé 1", "symptôme associé 2"],
-  "context":       "antécédents, traitements, allergies mentionnés par le patient. Chaîne vide si rien.",
-  "warning_signs": ["signe d'alarme 1", "signe d'alarme 2"],
-  "questions":     ["Question utile pour le médecin 1", "Question 2", "Question 3"]
-}
-
-Règles strictes :
-- main_symptom : 1 phrase, neutre, sans diagnostic
-- duration : ce que le patient a dit exactement, pas d'interprétation
-- intensity : entier entre 1 et 10, null si jamais mentionné
-- associated : liste vide [] si aucun
-- context : uniquement ce que le patient a mentionné spontanément (pas d'invention)
-- warning_signs : liste vide [] si aucun signe d'alarme détecté
-- questions : exactement 2 à 3 questions ouvertes, pertinentes selon les hypothèses de la conversation
-- Ne jamais affirmer un diagnostic
-- Ne jamais recommander un traitement
-- Ne jamais minimiser un symptôme
-
-CONVERSATION :
-"""
+# Garde-fou de la boucle agentique : nombre max d'allers-retours outil.
+MAX_ITERATIONS = 4
 
 TOOLS = [{
     "name": "chercher_informations_medicales",
@@ -126,10 +62,14 @@ def _parse_triage(text: str) -> tuple[str, dict | None]:
         return text, None
 
 
-def _generate_report(conversation: list[dict]) -> dict | None:
+def _generate_report(conversation: list[dict], profile: dict | None = None,
+                     age=None, sex=None) -> dict | None:
     """
     Second appel Claude léger : extrait la fiche pré-consultation structurée.
-    Pas de tools, pas de RAG — juste l'analyse de la conversation.
+    Pas de tools, pas de RAG — analyse de la conversation + profil patient.
+    Le profil est injecté pour que la fiche destinée au médecin contienne
+    les antécédents/traitements/allergies même si le patient ne les a pas
+    répétés dans la conversation.
     Retourne un dict ou None si échec (la fiche est optionnelle, jamais bloquante).
     """
     # Reconstitue la conversation en texte lisible (ignore les tool_result)
@@ -143,12 +83,33 @@ def _generate_report(conversation: list[dict]) -> dict | None:
 
     conv_text = "\n".join(lines)
 
+    # Bloc profil patient (base de données) — à intégrer dans le champ "context"
+    profile_lines = []
+    if age:
+        profile_lines.append(f"- Âge : {age} ans")
+    if sex:
+        profile_lines.append(f"- Sexe : {'Homme' if sex == 'M' else 'Femme'}")
+    if profile:
+        ants = profile.get("antecedents") or []
+        if ants:
+            profile_lines.append(f"- Antécédents : {', '.join(str(a)[:80] for a in ants[:5])}")
+        txs = profile.get("treatments") or []
+        if txs:
+            profile_lines.append(f"- Traitements : {', '.join(str(t.get('name',''))[:60] for t in txs[:5])}")
+        allgs = profile.get("allergies") or []
+        if allgs:
+            profile_lines.append(f"- Allergies : {', '.join(str(a)[:60] for a in allgs[:5])}")
+
+    profile_text = ""
+    if profile_lines:
+        profile_text = "PROFIL PATIENT (base de données) :\n" + "\n".join(profile_lines) + "\n\n"
+
     try:
         resp = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=500,   # fiche courte
             system="Tu es un assistant médical qui extrait des données structurées.",
-            messages=[{"role": "user", "content": REPORT_PROMPT + conv_text}],
+            messages=[{"role": "user", "content": REPORT_PROMPT + profile_text + conv_text}],
         )
         raw   = resp.content[0].text
         match = re.search(r"<REPORT>(.*?)</REPORT>", raw, re.DOTALL)
@@ -277,25 +238,41 @@ def _build_patient_context(profile: dict | None, age, sex, dept) -> str:
 
 def chat(messages: list[dict], embed_fn, pg, mongo=None,
          age=None, sex=None, dept=None, profile=None,
-         lat=None, lon=None) -> dict:
+         lat=None, lon=None, prev_triage=None) -> dict:
     """
     Boucle agentique MedRAG.
     Retourne {"text": str, "triage": dict|None, "report": dict|None}.
-    profile  : dict du profil médical patient_profiles (None si pas de profil).
-    lat, lon : coordonnées WGS84 du patient (optionnelles) — si fournies, la recherche
-               d'établissements est géolocalisée ($near) au lieu d'utiliser le dept.
+    profile     : dict du profil médical patient_profiles (None si pas de profil).
+    lat, lon    : coordonnées WGS84 du patient (optionnelles) — si fournies, la
+                  recherche d'établissements est géolocalisée ($near).
+    prev_triage : triage déjà émis dans cette conversation (None si premier tour).
+                  Si présent → mode follow-up : règle du cliquet rappelée à l'agent
+                  (l'application en code est faite dans api.py).
     """
     system = SYSTEM_PROMPT
     ctx = _build_patient_context(profile, age, sex, dept)
     if ctx:
         system += f"\n\n{ctx}"
 
+    # Mode follow-up : une orientation existe déjà → rappel explicite du cliquet
+    if prev_triage and prev_triage.get("orientation"):
+        system += (
+            "\n\n<triage_precedent>\n"
+            f"Une orientation a DÉJÀ été émise dans cette conversation : "
+            f"{prev_triage['orientation']}.\n"
+            "Tu es en mode SUIVI (voir référence 4) : ne propose JAMAIS une "
+            "orientation moins urgente. Réémets un <TRIAGE> uniquement si un "
+            "élément clinique nouveau justifie une orientation PLUS urgente.\n"
+            "</triage_precedent>"
+        )
+
     working = list(messages)
 
-    while True:
+    # Boucle bornée : évite une boucle infinie si le LLM enchaîne les appels outil
+    for _ in range(MAX_ITERATIONS):
         response = client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=1600,
+            max_tokens=2200,   # marge pour réponse complète + bloc <TRIAGE> non tronqué
             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,
             messages=working,
@@ -317,6 +294,21 @@ def chat(messages: list[dict], embed_fn, pg, mongo=None,
             clean_text, triage = _parse_triage(raw_text)
 
             # Génère la fiche uniquement quand le triage est disponible
-            report = _generate_report(working) if triage is not None else None
+            # (le profil patient est injecté pour une fiche complète côté médecin)
+            report = (
+                _generate_report(working, profile=profile, age=age, sex=sex)
+                if triage is not None else None
+            )
 
             return {"text": clean_text, "triage": triage, "report": report}
+
+    # Limite d'itérations atteinte : réponse de repli sûre, jamais de crash
+    return {
+        "text": (
+            "Je n'ai pas pu finaliser l'analyse de votre situation. "
+            "Par prudence, je vous recommande de contacter un professionnel de santé. "
+            "En cas d'urgence, appelez le 15 (SAMU)."
+        ),
+        "triage": None,
+        "report": None,
+    }

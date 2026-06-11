@@ -64,6 +64,31 @@ class PatientProfileReq(BaseModel):
     allergies:       list[str] | None = None
     lifestyle:       dict | None      = None    # {smoking, activity}
 
+# ── Sécurité triage ───────────────────────────────────────────────────────────
+
+# Échelle de gravité des orientations — utilisée par la règle du cliquet
+SEVERITE = {"domicile": 0, "pharmacien": 1, "medecin": 2, "urgent": 3, "samu": 4}
+
+
+def _appliquer_cliquet(prev_triage: dict | None, new_triage: dict | None) -> dict | None:
+    """Règle du cliquet : l'orientation monte mais ne descend jamais.
+
+    Garde-fou en CODE (le prompt contient la même règle, mais on ne fait pas
+    confiance au LLM seul pour une règle de sécurité). Si le nouveau triage
+    est moins urgent que le précédent — ou illisible — on conserve le précédent.
+    Logique alignée sur le re-tri de l'échelle FRENCH (SFMU) : réévaluation
+    possible vers plus grave uniquement.
+    """
+    if not new_triage:
+        return None
+    if not prev_triage:
+        return new_triage
+    new_sev = SEVERITE.get(new_triage.get("orientation"))
+    old_sev = SEVERITE.get(prev_triage.get("orientation"))
+    if new_sev is None or (old_sev is not None and new_sev < old_sev):
+        return prev_triage   # rétrogradation refusée
+    return new_triage
+
 # ── Auth helper (dépendance FastAPI) ─────────────────────────────────────────
 
 def _check_ownership(conv_id: str, user: dict):
@@ -166,6 +191,8 @@ def chat(conv_id: str, req: ChatReq, user: dict = Depends(get_user)):
     embed_fn = lambda t: state["model"].encode(t).tolist()
     # Charge le profil médical pour contextualiser Claude (None si skip onboarding)
     profile = patient_profile.get_profile(user["user_id"])
+    # Triage déjà émis ? (None au premier tour, sinon mode follow-up)
+    prev_triage = conversation.get_triage(conv_id)
     result = llm_client.chat(
         messages=history,
         embed_fn=embed_fn,
@@ -177,11 +204,12 @@ def chat(conv_id: str, req: ChatReq, user: dict = Depends(get_user)):
         profile=profile,
         lat=user.get("lat"),
         lon=user.get("lon"),
+        prev_triage=prev_triage,
     )
 
-
     response_text = result["text"]
-    triage        = result["triage"]
+    # Règle du cliquet appliquée en code : jamais de rétrogradation d'orientation
+    triage        = _appliquer_cliquet(prev_triage, result["triage"])
     report        = result["report"]   # fiche pré-consultation (None si pas encore de triage)
 
     # 3. Sauvegarder les nouveaux messages (user + assistant)
