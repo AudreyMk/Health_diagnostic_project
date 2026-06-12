@@ -241,8 +241,12 @@ export default function ConsultationPage({ onNavigate }: ConsultationPageProps) 
       await sendMessage(text);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erreur serveur';
-      if (msg.includes('réseau') || msg.includes('fetch')) {
-        toast.error('Impossible de contacter le serveur.');
+      const low = msg.toLowerCase();
+      if (low.includes('réseau') || low.includes('fetch') || low.includes('failed to fetch')) {
+        toast.error('Impossible de contacter le serveur. Vérifiez votre connexion.');
+      } else if (low.includes('crédit') || low.includes('indisponible')) {
+        // Service LLM indisponible (crédit API épuisé / panne) — message clair et durable
+        toast.error(msg, { duration: 8000, icon: '⚠️' });
       } else {
         toast.error('❌ ' + msg);
       }
@@ -490,17 +494,17 @@ export default function ConsultationPage({ onNavigate }: ConsultationPageProps) 
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder={
                   chatPhase === 'orientation'
-                    ? 'Consultation terminée — orientation générée'
+                    ? 'Une question de suivi ? (l’orientation reste valable)'
                     : 'Décrivez vos symptômes…'
                 }
-                disabled={isTyping || chatPhase === 'orientation'}
+                disabled={isTyping}
                 className="flex-1 text-[15px] h-10"
                 autoFocus
               />
               <Button
                 type="submit"
                 className="h-10 px-4"
-                disabled={!inputValue.trim() || isTyping || chatPhase === 'orientation'}
+                disabled={!inputValue.trim() || isTyping}
               >
                 {isTyping ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

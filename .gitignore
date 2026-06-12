@@ -46,3 +46,10 @@ frontend/
 datalake_pipeline/coverage.xml
 datalake_pipeline/coverage_html/
 datalake_pipeline/report.xml
+
+# Audit interne — non publié
+ADVERSARIAL_REVIEW_PIPELINE.md
+
+# Dépôt brut des sources médicales téléchargées (la version organisée et
+# référencée se trouve dans datalake_pipeline/rag_engine/prompts/sources/)
+documentation médical/
