@@ -1,429 +1,200 @@
-<div align="center">
+# MedRAG v2
 
-# 🩺 MedRAG
+Assistant web de pre-consultation medicale base sur une architecture RAG (Retrieval-Augmented Generation).
 
-**Outil d'aide à la décision clinique basé sur RAG**  
-*Projet M2 Data Science — Université*
+Ce projet aide le patient a structurer ses symptomes, detecter les signes d'alerte, preparer une consultation et orienter vers le bon niveau de soin. Il ne remplace pas un professionnel de sante.
 
-[![Pipeline](https://gitlab.com/kamkamgaing-group/projet_medrag/badges/main/pipeline.svg)](https://gitlab.com/kamkamgaing-group/projet_medrag/-/pipelines)
-[![Coverage](https://gitlab.com/kamkamgamgaing-group/projet_medrag/badges/main/coverage.svg)](https://gitlab.com/kamkamgaing-group/projet_medrag/-/pipelines)
+## Vue d'ensemble
 
-</div>
+MedRAG v2 combine :
 
----
+- un backend FastAPI pour l'authentification, les conversations et le triage ;
+- un moteur RAG multi-sources (pathologies, patients similaires, cas cliniques, FINESS) ;
+- une interface web principale Next.js (`med-rag-product-ux`) ;
+- une interface React/Vite historique (`frontend`) conservee pour prototypage.
 
-## 📋 Table des matières
+## Stack technique
 
-1. [Vue d'ensemble](#-vue-densemble)
-2. [Architecture](#-architecture)
-3. [Données](#-données)
-4. [Prérequis](#-prérequis)
-5. [Installation & Lancement](#-installation--lancement)
-6. [Utilisation de l'interface](#-utilisation-de-linterface)
-7. [API REST](#-api-rest)
-8. [Pipeline CI/CD](#-pipeline-cicd)
-9. [Structure du projet](#-structure-du-projet)
-10. [Avertissement médical](#️-avertissement-médical)
+- Frontend principal : Next.js 16, React 19, TypeScript, composants UI Radix/Shadcn
+- Frontend legacy : React 18 + Vite
+- Backend API : FastAPI + Uvicorn
+- LLM : Anthropic Claude (`claude-sonnet-4-6` par defaut)
+- Embeddings : `intfloat/multilingual-e5-base`
+- Retrieval semantique : PostgreSQL 16 + pgvector
+- Geo-recherche : MongoDB 7 (index 2dsphere FINESS)
+- Orchestration locale : Docker Compose
 
----
+## Architecture (v2)
 
-## 🔍 Vue d'ensemble
+1. Le patient cree un compte puis complete son onboarding medical.
+2. Le frontend appelle les routes `/api/*` du backend FastAPI.
+3. Le backend charge l'historique de conversation + profil patient.
+4. Claude peut appeler un outil de recherche interne pour interroger :
+   - pool 1 : pathologies
+   - pool 2 : patients similaires
+   - pool 3 : cas cliniques
+   - etablissements FINESS
+5. Le backend applique les garde-fous de triage (regle de cliquet), persiste conversation, triage et fiche pre-consultation.
 
-MedRAG est un système de **Retrieval-Augmented Generation (RAG)** médical qui :
+## Arborescence utile
 
-1. Prend en entrée une **description de symptômes en langage naturel**
-2. Recherche les **pathologies et cas patients similaires** par similarité sémantique (pgvector)
-3. Localise les **établissements de santé proches** via géolocalisation (MongoDB)
-4. Génère des **hypothèses diagnostiques structurées** avec Claude (Anthropic)
-
-> ⚠️ Cet outil est destiné aux **professionnels de santé** comme aide à la décision. Il ne remplace pas un diagnostic médical.
-
----
-
-## 🏗 Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Interface React                        │
-│   Formulaire symptômes │ Résultats │ Carte Leaflet (FINESS) │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP / JSON
-┌────────────────────────▼────────────────────────────────────┐
-│                    FastAPI — port 8000                       │
-│   POST /api/suggest   GET /api/health   GET /api/pathologies │
-└──────────┬──────────────────────────────────────┬───────────┘
-           │                                      │
-┌──────────▼──────────────┐        ┌──────────────▼──────────┐
-│  EmbeddingManager        │        │  MongoRetriever          │
-│  multilingual-e5-base    │        │  Centres FINESS          │
-│  (768 dims, query: )     │        │  Index 2dsphere $near    │
-└──────────┬──────────────┘        └──────────────────────────┘
-           │ vecteur requête
-┌──────────▼──────────────┐        ┌──────────────────────────┐
-│  PGRetriever             │   ───▶ │  LLMClient               │
-│  PostgreSQL + pgvector   │  docs  │  Claude claude-sonnet-4-6│
-│  search_similar_docs()   │        │  + prompt caching        │
-│  Index HNSW cosinus      │        └──────────────────────────┘
-└─────────────────────────┘
+```text
+projet_medrag_v2/
+   datalake_pipeline/
+      rag_engine/
+         api.py
+         llm_client.py
+         retriever.py
+         auth.py
+         conversation.py
+         patient_profile.py
+      docker-compose.yml
+      load_pathologies.py
+      load_patients.py
+      load_clinical.py
+      load_finess.py
+      evaluation/
+   med-rag-product-ux/   # frontend principal
+   frontend/             # frontend legacy
+   docs/SETUP.md
+   README.md
 ```
 
-### Stack technique
+## Prerequis
 
-| Composant | Technologie | Rôle |
-|---|---|---|
-| Frontend | React 18 + Vite + Leaflet | Interface utilisateur |
-| API | FastAPI + Uvicorn | Serveur REST |
-| Embedding | `intfloat/multilingual-e5-base` | Encodage sémantique (768 dims) |
-| Retrieval | PostgreSQL 16 + pgvector | Similarité cosinus, index HNSW |
-| Géospatial | MongoDB 7 | Centres de santé FINESS, index 2dsphere |
-| LLM | Claude `claude-sonnet-4-6` | Génération des hypothèses diagnostiques |
-| Infra | Docker Compose | Orchestration des services |
-| CI/CD | GitLab CI | Tests, build Docker, déploiement |
+- Docker Desktop
+- Python 3.11+
+- Node.js 20+
+- Cle API Anthropic
 
----
+## Installation rapide (Windows)
 
-## 📊 Données
+### 1) Cloner le projet
 
-| Source | Description | Volume |
-|---|---|---|
-| **DDXPlus FR** | Dataset synthétique de pathologies (Figshare) | 49 pathologies, ~1,3M patients |
-| **FINESS** | Établissements de santé français (data.gouv.fr) | ~52 000 centres géolocalisés |
-| **CSV médical** | Descriptions symptômes/pathologies (anglais) | 5 580 entrées, 27 pathologies |
-
-Les données sont stockées dans `datalake_pipeline/processed/` après traitement (voir [Pipeline de données](#pipeline-de-données)).
-
----
-
-## ✅ Prérequis
-
-- **Docker Desktop** — [Télécharger](https://www.docker.com/products/docker-desktop/)
-- **Node.js 20+** — [Télécharger](https://nodejs.org/)
-- **Python 3.11+** — [Télécharger](https://www.python.org/)
-- **Clé API Anthropic** — [Créer un compte](https://console.anthropic.com/) *(optionnel pour le retrieval seul)*
-
----
-
-## 🚀 Installation & Lancement
-
-### 1. Cloner le projet
-
-```bash
-git clone https://gitlab.com/kamkamgaing-group/projet_medrag.git
-cd projet_medrag
+```powershell
+git clone <URL_DU_DEPOT> projet_medrag_v2
+cd projet_medrag_v2
 ```
 
-### 2. Configurer l'environnement
+### 2) Lancer les bases (Docker)
 
-```bash
+```powershell
 cd datalake_pipeline
-cp .env.example .env
+docker compose up -d
 ```
 
-Éditez `.env` et renseignez votre clé Anthropic :
+Services demarres :
+
+- PostgreSQL : `localhost:5433`
+- MongoDB : `localhost:27018`
+- pgAdmin : `http://localhost:5051`
+- Mongo-Express : `http://localhost:8082`
+
+### 3) Configurer Python
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 4) Configurer les variables d'environnement
+
+```powershell
+copy .env.example .env
+```
+
+Renseigner au minimum dans `.env` :
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...   # obligatoire pour les suggestions LLM
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 3. Démarrer l'infrastructure (bases de données)
+### 5) Charger les donnees
 
-```bash
-# Depuis datalake_pipeline/
-docker compose up -d postgres mongodb pgadmin mongo-express
+```powershell
+python load_pathologies.py
+python load_patients.py
+python load_clinical.py
+python load_finess.py
 ```
 
-Vérifiez que les conteneurs sont **healthy** :
+### 6) Lancer l'API
 
-```bash
-docker ps
+```powershell
+python -m uvicorn rag_engine.api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-```
-NAMES                  STATUS
-medrag-postgres        Up (healthy)   ← PostgreSQL + pgvector
-medrag-mongodb         Up (healthy)   ← MongoDB
-medrag-pgadmin         Up             ← Interface admin PG
-medrag-mongo-express   Up             ← Interface admin Mongo
-```
+API disponible sur : `http://localhost:8000`
 
-### 4. Charger les données (première fois uniquement)
+### 7) Lancer le frontend principal
 
-```bash
-# Créer et activer l'environnement virtuel
-python -m venv .venv
-source .venv/bin/activate          # Linux/Mac
-# .venv\Scripts\activate           # Windows
+Dans un nouveau terminal :
 
-# Installer les dépendances
-pip install -r requirements.txt -r requirements_rag.txt
-
-# Importer les données + vectoriser avec sentence-transformers
-python load_to_databases.py
-```
-
-> ⏳ La vectorisation de 43 000+ patients prend ~10-20 min selon votre machine.
-
-### 5. Lancer l'API
-
-```bash
-# Depuis datalake_pipeline/ (venv activé)
-uvicorn rag_engine.api:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 6. Lancer l'interface React
-
-```bash
-# Nouveau terminal, depuis frontend/
+```powershell
+cd med-rag-product-ux
 npm install
 npm run dev
 ```
 
-### ✅ L'application est disponible
+Application web : `http://localhost:3000`
 
-| Service | URL | Identifiants |
-|---|---|---|
-| **Interface MedRAG** | http://localhost:3000 | — |
-| **API Swagger** | http://localhost:8000/docs | — |
-| **pgAdmin** | http://localhost:5050 | admin@medrag.com / admin |
-| **Mongo Express** | http://localhost:8081 | admin / admin |
+Le proxy Next.js redirige `/api/*` vers `http://localhost:8000/api/*`.
 
----
+## Endpoints API principaux
 
-## 🖥 Utilisation de l'interface
+Toutes les routes sont prefixees par `/api`.
 
-### Panneau gauche — Saisie
+### Authentification et profil utilisateur
 
-1. **Symptômes** : décrivez les symptômes en texte libre (français de préférence)
-   > *Ex : "Fièvre à 39°C depuis 3 jours, toux sèche, douleurs thoraciques, fatigue"*
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `PUT /api/auth/profile`
 
-2. **Informations patient** : âge et sexe (optionnels, améliorent la précision)
+### Profil medical patient
 
-3. **Localisation** : cliquez sur **"Ma position GPS"** ou directement sur la carte pour activer la recherche de centres proches. Ajustez le rayon avec le curseur.
+- `GET /api/patient/profile`
+- `POST /api/patient/profile`
 
-4. Cliquez sur **"Analyser les symptômes"**
+### Conversations et triage
 
-### Panneau droit — Carte interactive
+- `POST /api/conversations`
+- `GET /api/conversations`
+- `GET /api/conversations/{conv_id}/messages`
+- `POST /api/conversations/{conv_id}/chat`
+- `GET /api/conversations/{conv_id}/report`
+- `GET /api/conversations/{conv_id}/triage`
 
-- **Point bleu pulsant** : votre position
-- **Points colorés** : établissements de santé FINESS trouvés dans le rayon
-  - 🔴 CHU / CHR
-  - 🟠 Centre Hospitalier
-  - 🟡 Clinique
-  - 🟢 Maison de santé
-  - 🔵 Pharmacie / Laboratoire
-- **Clic sur un marqueur** : nom, adresse, téléphone, catégorie
+### Etablissements et sante systeme
 
-### Résultats
+- `GET /api/centers`
+- `GET /api/health`
 
-- **Analyse IA** : hypothèses diagnostiques générées par Claude avec justification
-- **Pathologies similaires** : classées par score de similarité sémantique avec barre de confiance
-- **Établissements proches** : affichés sur la carte avec détails au clic
+## Evaluation
 
----
+Scripts disponibles dans `datalake_pipeline/evaluation/` :
 
-## 📡 API REST
-
-### `POST /api/suggest` — Suggestion de pathologies
-
-```bash
-curl -X POST http://localhost:8000/api/suggest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symptoms": "Fièvre à 39°C, toux sèche, douleurs thoraciques",
-    "age": 45,
-    "sex": "M",
-    "latitude": 48.8566,
-    "longitude": 2.3522,
-    "max_distance_km": 10,
-    "top_k": 8,
-    "min_similarity": 0.25
-  }'
+```powershell
+python evaluation\run_eval.py
+python evaluation\test_follow_up.py
+python evaluation\test_questioning.py
 ```
 
-<details>
-<summary>Exemple de réponse</summary>
+## Notes importantes
 
-```json
-{
-  "query": "Fièvre à 39°C, toux sèche, douleurs thoraciques",
-  "patient_info": { "age": 45, "sex": "M" },
-  "pathologies_retrieved": [
-    {
-      "id": "patho_...",
-      "pathology": "Pneumonie",
-      "text": "Pathologie : Pneumonie. Code CIM-10 : J18...",
-      "similarity": 0.84
-    }
-  ],
-  "nearby_centers": [ { "name": "CHU Paris...", "category": "CHU", ... } ],
-  "llm_response": "## Analyse clinique\n...",
-  "performance": { "total_seconds": 1.4 },
-  "retrieval_stats": { "pathologies_found": 5, "top_similarity": 0.84 }
-}
-```
-</details>
+- Les fichiers `datalake_pipeline/processed/*.jsonl` peuvent ne pas etre versionnes selon votre setup.
+- La cle Anthropic est indispensable pour les reponses conversationnelles LLM.
+- La regle de securite medicale est stricte : triage avec cliquet (pas de retrogradation automatique).
 
-### `GET /api/health` — État de l'API
+## Documentation complementaire
 
-```bash
-curl http://localhost:8000/api/health
-```
+- Guide d'installation detaille : `docs/SETUP.md`
+- Contexte produit et contraintes medicales : `CLAUDE.md`
+- Schema SQL : `docs/schema.sql`
 
-### `GET /api/pathologies` — Liste des pathologies indexées
+## Avertissement medical
 
-```bash
-curl http://localhost:8000/api/pathologies
-```
+Les informations produites par MedRAG constituent une aide a l'orientation et ne remplacent pas l'avis d'un professionnel de sante.
 
-### `POST /api/centers` — Centres de santé proches
-
-```bash
-curl -X POST http://localhost:8000/api/centers \
-  -H "Content-Type: application/json" \
-  -d '{ "latitude": 48.8566, "longitude": 2.3522, "max_distance_km": 5 }'
-```
-
-📖 Documentation interactive complète : **http://localhost:8000/docs**
-
----
-
-## 🔄 Pipeline CI/CD
-
-Le pipeline GitLab CI s'exécute automatiquement à chaque push.
-
-```
-push
-  │
-  ├── lint
-  │     ├── backend:lint     → ruff (qualité Python)
-  │     └── frontend:lint    → vite build (vérifie le frontend)
-  │
-  ├── test
-  │     └── backend:unit-tests → 32 tests pytest (couverture de code)
-  │
-  ├── build  (main / develop uniquement)
-  │     ├── api:docker-build   → image Docker → GitLab Registry
-  │     └── frontend:build-prod → bundle React (artifact)
-  │
-  └── deploy  (main, déclenchement manuel)
-        └── deploy:staging   → SSH + docker compose pull + restart
-```
-
-### Configurer les variables GitLab
-
-`Settings → CI/CD → Variables` :
-
-| Variable | Description | Masquée |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Clé API Anthropic | ✅ |
-| `SSH_PRIVATE_KEY` | Clé SSH pour le serveur staging | ✅ |
-| `STAGING_HOST` | IP ou hostname du serveur | ❌ |
-| `STAGING_USER` | Utilisateur SSH | ❌ |
-
-### Lancer les tests localement
-
-```bash
-cd datalake_pipeline
-pip install -r requirements_dev.txt
-pytest tests/ -v --cov=rag_engine
-```
-
----
-
-## 📁 Structure du projet
-
-```
-projet_medrag/
-│
-├── .gitlab-ci.yml                 ← Pipeline CI/CD GitLab
-├── pyproject.toml                 ← Config ruff + pytest
-├── .gitignore
-├── README.md
-├── combined_medical_data.csv      ← Source données CSV
-│
-├── frontend/                      ← Interface React
-│   ├── src/
-│   │   ├── App.jsx                ← Layout principal + gestion d'état
-│   │   ├── index.css              ← Styles (dark theme, animations)
-│   │   └── components/
-│   │       ├── SymptomForm.jsx    ← Formulaire symptômes + GPS
-│   │       ├── ResultsPanel.jsx   ← Résultats LLM + cartes pathologies
-│   │       └── HospitalMap.jsx    ← Carte Leaflet + marqueurs FINESS
-│   ├── package.json
-│   └── vite.config.js             ← Proxy → API port 8000
-│
-└── datalake_pipeline/             ← Backend + pipeline data
-    │
-    ├── rag_engine/                ← Cœur du système RAG
-    │   ├── config.py              ← Variables d'environnement
-    │   ├── embedding_manager.py   ← Encodage requêtes (e5-base)
-    │   ├── retriever.py           ← pgvector + MongoDB $near
-    │   ├── llm_client.py          ← Claude API + prompt caching
-    │   ├── rag_engine.py          ← Orchestrateur du pipeline
-    │   └── api.py                 ← Endpoints FastAPI
-    │
-    ├── tests/                     ← Tests unitaires
-    │   ├── conftest.py            ← Fixtures + mock dépendances lourdes
-    │   ├── test_api.py            ← 20 tests endpoints FastAPI
-    │   ├── test_embedding.py      ← 3 tests EmbeddingManager
-    │   └── test_retriever.py      ← 9 tests PGRetriever + MongoRetriever
-    │
-    ├── docker/
-    │   ├── init-postgres.sql      ← Schéma PG + fonction search_similar_documents()
-    │   └── init-mongo.js          ← Index 2dsphere + collections MongoDB
-    │
-    ├── processed/                 ← Données JSONL (gitignorées)
-    │   ├── ddxplus_pathology_documents.jsonl
-    │   ├── ddxplus_patient_descriptions.jsonl
-    │   ├── finess_health_centers.jsonl
-    │   └── csv_symptom_descriptions.jsonl
-    │
-    ├── ingest_to_s3.py            ← Ingestion AWS S3 (DDXPlus, FINESS, CSV)
-    ├── unified_data_processor.py  ← Traitement + normalisation JSONL
-    ├── load_to_databases.py       ← Import PG + MongoDB + vectorisation
-    ├── docker-compose.yml         ← Services : PG, MongoDB, pgAdmin, API
-    ├── Dockerfile                 ← Image Docker de l'API RAG
-    ├── requirements.txt           ← Dépendances pipeline data
-    ├── requirements_rag.txt       ← Dépendances RAG engine
-    ├── requirements_dev.txt       ← Dépendances développement + tests
-    └── .env.example               ← Template de configuration
-```
-
----
-
-## Pipeline de données (réingestion)
-
-Si vous souhaitez régénérer les données depuis les sources :
-
-```bash
-# Étape 1 — Ingestion depuis les sources publiques vers AWS S3
-python ingest_to_s3.py --sources ddxplus finess csv
-
-# Étape 2 — Traitement et normalisation
-python unified_data_processor.py \
-  --ddxplus-conditions raw/ddxplus/release_conditions.json \
-  --ddxplus-evidences  raw/ddxplus/release_evidences.json \
-  --ddxplus-patients   raw/ddxplus/release_train_patients.csv \
-  --finess-etab        raw/finess/finess_etablissements.csv \
-  --csv-symptoms       ../combined_medical_data.csv \
-  --output-dir         ./processed \
-  --max-patients       100000
-
-# Étape 3 — Import bases de données + vectorisation
-python load_to_databases.py
-```
-
----
-
-## ⚠️ Avertissement médical
-
-> MedRAG est un **outil d'aide à la décision clinique** destiné aux professionnels de santé.  
-> Il ne remplace en aucun cas l'évaluation d'un médecin qualifié.  
-> Les données DDXPlus utilisées sont **synthétiques** et ne proviennent pas de cas réels.  
-> **Tout diagnostic doit être posé par un professionnel de santé après examen clinique.**
-
----
-
-<div align="center">
-Projet M2 Data Science · GitLab CI/CD · RAG · pgvector · MongoDB · Claude API
-</div>
+L'application ne pose pas de diagnostic definitif et ne prescrit pas de traitement.
