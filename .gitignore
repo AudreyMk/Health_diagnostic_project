@@ -53,3 +53,6 @@ ADVERSARIAL_REVIEW_PIPELINE.md
 # Dépôt brut des sources médicales téléchargées (la version organisée et
 # référencée se trouve dans datalake_pipeline/rag_engine/prompts/sources/)
 documentation médical/
+~$pport_MedRAG_presentation.docx
+CLAUDE.md
+docs/
